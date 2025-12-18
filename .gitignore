@@ -1,0 +1,158 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+virtualenv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Pygame/Game specific
+*.log
+screenshots/
+saves/
+replays/
+savedata/
+player_data/
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+*.lnk
+
+# Cache
+.cache/
+*.cache
+.numba_cache/
+
+# Compiled shaders (if any)
+*.spv
+*.spirv
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Jupyter Notebook (if used)
+.ipynb_checkpoints
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+*.exe
+*.app
+*.dmg
+*.msi
+
+# Temporary files
+*.tmp
+*.temp
+~*
+*.bak
+*.swp
+
+# Game development files (optional - remove if you want to track these)
+BUGFIXES*.md
+PHASE*_PROGRESS.md
+IMPROVEMENTS.md
+TECHNICAL_REVIEW.md
+
+# Audio/Video recordings (if you record gameplay)
+*.mp4
+*.avi
+*.mov
+*.wav
+*.mp3
+*.ogg
+
+# Performance profiling
+*.prof
+*.lprof
+profile_output/
+
+# Documentation builds
+docs/_build/
+site/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/

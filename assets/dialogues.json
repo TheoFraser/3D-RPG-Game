@@ -1,0 +1,202 @@
+{
+  "dialogues": [
+    {
+      "id": "guard_greeting",
+      "npc_name": "Village Guard",
+      "start": "greeting",
+      "nodes": [
+        {
+          "id": "greeting",
+          "type": "text",
+          "text": "Halt! State your business.",
+          "speaker": "Village Guard",
+          "next": "choice"
+        },
+        {
+          "id": "choice",
+          "type": "choice",
+          "text": "What do you say?",
+          "speaker": "Player",
+          "choices": [
+            {
+              "text": "I'm just passing through.",
+              "next": "passing_through"
+            },
+            {
+              "text": "I'm looking for work.",
+              "next": "looking_work"
+            },
+            {
+              "text": "What's beyond these walls?",
+              "next": "beyond_walls"
+            }
+          ]
+        },
+        {
+          "id": "passing_through",
+          "type": "end",
+          "text": "Very well. Stay out of trouble.",
+          "speaker": "Village Guard"
+        },
+        {
+          "id": "looking_work",
+          "type": "end",
+          "text": "Seek out the Elder in the village center. He often has tasks for travelers.",
+          "speaker": "Village Guard"
+        },
+        {
+          "id": "beyond_walls",
+          "type": "end",
+          "text": "Ancient ruins, filled with mystery and danger. Tread carefully, adventurer.",
+          "speaker": "Village Guard"
+        }
+      ]
+    },
+    {
+      "id": "merchant_greeting",
+      "npc_name": "Traveling Merchant",
+      "start": "greeting",
+      "nodes": [
+        {
+          "id": "greeting",
+          "type": "text",
+          "text": "Welcome, welcome! Care to see my wares?",
+          "speaker": "Traveling Merchant",
+          "next": "choice"
+        },
+        {
+          "id": "choice",
+          "type": "choice",
+          "text": "What do you ask?",
+          "speaker": "Player",
+          "choices": [
+            {
+              "text": "What are you selling?",
+              "next": "selling"
+            },
+            {
+              "text": "Where are you from?",
+              "next": "from"
+            },
+            {
+              "text": "Goodbye.",
+              "next": "goodbye"
+            }
+          ]
+        },
+        {
+          "id": "selling",
+          "type": "end",
+          "text": "Potions, tools, maps... If you need it, I probably have it! (Shop not yet implemented)",
+          "speaker": "Traveling Merchant"
+        },
+        {
+          "id": "from",
+          "type": "end",
+          "text": "I travel from village to village, following the trade routes. Been doing this for twenty years now!",
+          "speaker": "Traveling Merchant"
+        },
+        {
+          "id": "goodbye",
+          "type": "end",
+          "text": "Safe travels, friend!",
+          "speaker": "Traveling Merchant"
+        }
+      ]
+    },
+    {
+      "id": "elder_quest",
+      "npc_name": "Village Elder",
+      "start": "greeting",
+      "nodes": [
+        {
+          "id": "greeting",
+          "type": "text",
+          "text": "Ah, a new face. We don't get many visitors these days.",
+          "speaker": "Village Elder",
+          "next": "explanation"
+        },
+        {
+          "id": "explanation",
+          "type": "text",
+          "text": "The ruins to the north have been... active lately. Strange lights, eerie sounds.",
+          "speaker": "Village Elder",
+          "next": "quest_offer"
+        },
+        {
+          "id": "quest_offer",
+          "type": "quest_start",
+          "text": "Would you investigate them for us? There may be something valuable there.",
+          "speaker": "Village Elder",
+          "quest_id": "investigate_ruins",
+          "next": "choice"
+        },
+        {
+          "id": "choice",
+          "type": "choice",
+          "text": "What do you say?",
+          "speaker": "Player",
+          "choices": [
+            {
+              "text": "I'll look into it.",
+              "next": "accept"
+            },
+            {
+              "text": "What's in it for me?",
+              "next": "reward"
+            },
+            {
+              "text": "I'm not interested.",
+              "next": "decline"
+            }
+          ]
+        },
+        {
+          "id": "accept",
+          "type": "end",
+          "text": "Thank you, brave adventurer. May the old gods watch over you.",
+          "speaker": "Village Elder"
+        },
+        {
+          "id": "reward",
+          "type": "end",
+          "text": "We'll compensate you handsomely, of course. Gold and perhaps a few family heirlooms.",
+          "speaker": "Village Elder"
+        },
+        {
+          "id": "decline",
+          "type": "end",
+          "text": "I understand. It's dangerous work. Perhaps someone else will help us.",
+          "speaker": "Village Elder"
+        }
+      ]
+    },
+    {
+      "id": "mysterious_stranger",
+      "npc_name": "Mysterious Stranger",
+      "start": "greeting",
+      "nodes": [
+        {
+          "id": "greeting",
+          "type": "text",
+          "text": "...",
+          "speaker": "Mysterious Stranger",
+          "next": "silence"
+        },
+        {
+          "id": "silence",
+          "type": "text",
+          "text": "*The hooded figure says nothing, but watches you intently*",
+          "speaker": "Narrator",
+          "next": "end"
+        },
+        {
+          "id": "end",
+          "type": "end",
+          "text": "...",
+          "speaker": "Mysterious Stranger"
+        }
+      ]
+    }
+  ]
+}
