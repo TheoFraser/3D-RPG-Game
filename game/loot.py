@@ -117,6 +117,50 @@ class LootSystem:
 
         return drops
 
+    def generate_boss_loot(self, enemy_type: str, enemy_name: str = "Boss") -> List[str]:
+        """
+        Generate special loot drops for boss enemies.
+
+        Bosses get guaranteed high-quality loot with better chances for rare items.
+
+        Args:
+            enemy_type: Boss enemy type
+            enemy_name: Boss name (for logging)
+
+        Returns:
+            List of item IDs dropped (guaranteed to be multiple high-quality items)
+        """
+        drops = []
+
+        # Bosses always drop gold (lots of it)
+        gold_count = self.random.randint(3, 6)  # 3-6 gold drops
+        for _ in range(gold_count):
+            drops.append("gold")
+
+        # Guaranteed epic or legendary equipment (2-3 items)
+        epic_legendary_items = [
+            "ancient_plate", "mythril_armor", "dragon_plate",
+            "sky_blade", "forest_blade", "ancient_sword",
+            "crystal_amulet", "ancient_ring", "power_amulet"
+        ]
+        num_guaranteed = self.random.randint(2, 3)
+        for _ in range(num_guaranteed):
+            item = self.random.choice(epic_legendary_items)
+            if item not in drops:  # Avoid exact duplicates
+                drops.append(item)
+
+        # Additional rare items (50% chance each)
+        rare_items = [
+            "steel_sword", "chainmail", "crystal_plate",
+            "silver_amulet", "power_ring"
+        ]
+        for item in rare_items:
+            if self.random.random() < 0.5:
+                drops.append(item)
+
+        logger.info(f"Boss {enemy_name} dropped {len(drops)} items (boss loot)")
+        return drops
+
     def _generate_from_comprehensive(self, enemy_key: str, enemy_name: str) -> List[str]:
         """Generate loot using comprehensive loot tables."""
         loot_table = COMPREHENSIVE_LOOT_TABLES[enemy_key]

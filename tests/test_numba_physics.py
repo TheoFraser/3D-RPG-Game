@@ -164,6 +164,7 @@ class TestSpatialHash:
 
     def test_build_spatial_hash(self):
         """Test building spatial hash grid."""
+        np.random.seed(42)  # Set seed for deterministic test
         n = 50
         positions = np.random.rand(n, 3).astype(np.float32) * 20
         cell_size = 2.0

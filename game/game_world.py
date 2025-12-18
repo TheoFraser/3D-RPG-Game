@@ -76,10 +76,11 @@ class GameWorld:
             self.poi_markers.append(marker)
         logger.info(f"Created {len(self.poi_markers)} POI markers")
 
-        # Setup NPCs, merchants, and fast travel points in the world
+        # Setup NPCs, merchants, fast travel points, and dungeon bosses in the world
         self._setup_npcs()
         self._setup_merchants()
         self._setup_fast_travel()
+        self._setup_dungeon_bosses()
 
         # Track game time for NPC cooldowns
         self.game_time = 0.0
@@ -161,6 +162,32 @@ class GameWorld:
                 shrine_count += 1
 
         logger.info(f"Registered {shrine_count} shrines for fast travel")
+
+    def _setup_dungeon_bosses(self):
+        """Spawn boss enemies in dungeons."""
+        from world_gen.spawn_system import SpawnSystem
+        spawn_system = SpawnSystem(seed=config.WORLD_SEED)
+
+        boss_count = 0
+        for poi in self.poi_generator.pois:
+            if poi.poi_type == POIType.DUNGEON and poi.data.get("has_boss", False):
+                # Get biome at dungeon location to determine appropriate boss
+                biome = self.biome_manager.get_biome_at(poi.position.x, poi.position.z)
+
+                # Spawn boss at dungeon location
+                boss = spawn_system.spawn_dungeon_boss(poi.position, biome)
+
+                # Add boss to enemy manager
+                self.enemy_manager.add_enemy(boss)
+
+                # Store boss reference in POI data for potential quest integration
+                poi.data["boss"] = boss
+                poi.data["boss_defeated"] = False
+
+                boss_count += 1
+                logger.info(f"Spawned {boss.name} at {poi.name}")
+
+        logger.info(f"Spawned {boss_count} dungeon bosses")
 
     def update(self, delta_time: float, player_position: glm.vec3):
         """

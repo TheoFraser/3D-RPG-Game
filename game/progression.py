@@ -173,6 +173,12 @@ XP_REWARDS = {
     "NORMAL": 50,
     "TANK": 75,
     "FAST": 60,
+    # Boss rewards
+    "BOSS_CORRUPTED_GUARDIAN": 500,
+    "BOSS_CRYSTAL_TYRANT": 600,
+    "BOSS_ANCIENT_WARDEN": 700,
+    "BOSS_VOID_KNIGHT": 800,
+    "BOSS_SKY_SERPENT": 650,
 }
 
 
@@ -181,12 +187,15 @@ def calculate_enemy_xp(enemy_type: str, enemy_level: int = 1) -> int:
     Calculate XP reward for defeating an enemy.
 
     Args:
-        enemy_type: Enemy type (WEAK, NORMAL, TANK, FAST)
+        enemy_type: Enemy type (WEAK, NORMAL, TANK, FAST, or boss type)
         enemy_level: Enemy level (currently unused, for future scaling)
 
     Returns:
         XP amount
     """
     base_xp = XP_REWARDS.get(enemy_type, 50)
+    # Bosses give massive XP rewards
+    if enemy_type.startswith("BOSS_"):
+        base_xp = XP_REWARDS.get(enemy_type, 500)
     # Could add level scaling here in the future
     return base_xp

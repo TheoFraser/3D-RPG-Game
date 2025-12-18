@@ -9,6 +9,7 @@ from game.combat import CombatController, CombatSystem
 from game.equipment import Equipment, EquipmentItem
 from game.progression import CharacterProgression
 from game.inventory import Inventory
+from game.spell_system import SpellCaster, SpellType, SpellManager
 from game.logger import get_logger
 
 logger = get_logger(__name__)
@@ -67,6 +68,34 @@ class Player:
         # Combat properties
         self.attack_range = 2.5  # meters
 
+        # Spell casting system
+        self.spell_caster = SpellCaster(max_mana=100.0)
+        # Learn all 8 spells
+        self.spell_caster.add_known_spell(SpellType.MAGIC_MISSILE)
+        self.spell_caster.add_known_spell(SpellType.FIREBALL)
+        self.spell_caster.add_known_spell(SpellType.ICE_SHARD)
+        self.spell_caster.add_known_spell(SpellType.LIGHTNING)
+        self.spell_caster.add_known_spell(SpellType.HEAL)
+        self.spell_caster.add_known_spell(SpellType.SHIELD)
+        self.spell_caster.add_known_spell(SpellType.TELEPORT)
+        self.spell_caster.add_known_spell(SpellType.METEOR)
+        # Equip spells to hotbar (slots 1-8)
+        self.spell_caster.equip_spell(SpellType.MAGIC_MISSILE, 0)  # Slot 1 - Fast spam spell
+        self.spell_caster.equip_spell(SpellType.FIREBALL, 1)       # Slot 2 - AoE damage
+        self.spell_caster.equip_spell(SpellType.ICE_SHARD, 2)      # Slot 3 - Slow/freeze
+        self.spell_caster.equip_spell(SpellType.LIGHTNING, 3)      # Slot 4 - Instant stun
+        self.spell_caster.equip_spell(SpellType.HEAL, 4)           # Slot 5 - Healing
+        self.spell_caster.equip_spell(SpellType.METEOR, 5)         # Slot 6 - Ultimate nuke
+        self.spell_caster.equip_spell(SpellType.SHIELD, 6)         # Slot 7 - Shield
+        self.spell_caster.equip_spell(SpellType.TELEPORT, 7)       # Slot 8 - Teleport/Blink
+
+        # Track pending spell execution
+        self._pending_spell = None
+        self._spell_manager = None
+
+        # Dodge roll tracking
+        self.dodge_direction = glm.vec3(0.0, 0.0, 0.0)
+
         # Apply initial equipment bonuses
         self._update_stats_with_bonuses()
 
@@ -93,6 +122,26 @@ class Player:
         """
         # Update combat state (cooldowns, stamina regen, etc.)
         self.combat.update(delta_time)
+
+        # Apply dodge roll movement over time
+        if self.combat.is_dodging and glm.length(self.dodge_direction) > 0:
+            # Apply movement gradually over dodge duration
+            dodge_speed = config.DODGE_DISTANCE / config.DODGE_DURATION
+            self.position += self.dodge_direction * dodge_speed * delta_time
+        elif not self.combat.is_dodging:
+            # Reset dodge direction when not dodging
+            self.dodge_direction = glm.vec3(0.0, 0.0, 0.0)
+
+        # Check if spell was casting before update
+        was_casting = self.spell_caster.is_casting
+        casting_spell = self.spell_caster.current_spell
+
+        # Update spell casting state (mana regen, cooldowns, casting)
+        self.spell_caster.update(delta_time)
+
+        # If spell just finished casting, execute it
+        if was_casting and not self.spell_caster.is_casting and casting_spell:
+            self._execute_spell(casting_spell, self._spell_manager)
 
         # Apply gravity
         if not self.is_grounded:
@@ -240,9 +289,8 @@ class Player:
         if not self.combat.start_dodge():
             return False
 
-        # Apply dodge movement
-        forward = glm.normalize(glm.vec3(self.camera.front.x, 0.0, self.camera.front.z))
-        self.velocity += forward * config.DODGE_DISTANCE
+        # Store dodge direction (will be applied gradually in update())
+        self.dodge_direction = glm.normalize(glm.vec3(self.camera.front.x, 0.0, self.camera.front.z))
 
         return True
 
@@ -269,6 +317,117 @@ class Player:
 
         # Cast ray from camera forward
         return self.camera.position + self.camera.front * max_distance
+
+    # ===== Spell Casting Methods =====
+
+    def cast_spell(self, slot: int, spell_manager: SpellManager = None):
+        """
+        Cast a spell from an equipped slot.
+
+        Args:
+            slot: Spell slot (0-7) to cast from
+            spell_manager: Spell manager for projectile spells
+
+        Returns:
+            bool: True if spell casting started
+        """
+        if slot < 0 or slot >= 8:
+            return False
+
+        spell = self.spell_caster.equipped_spells[slot]
+        if spell is None:
+            logger.debug(f"No spell equipped in slot {slot + 1}")
+            return False
+
+        # Store spell manager for when cast completes
+        self._spell_manager = spell_manager
+
+        # Start casting
+        if not self.spell_caster.start_cast(spell):
+            return False
+
+        # Handle instant spells (execute immediately)
+        if spell.is_instant or spell.stats.cast_time == 0:
+            return self._execute_spell(spell, spell_manager)
+
+        # Non-instant spells will execute in update() when cast completes
+        return True
+
+    def _execute_spell(self, spell, spell_manager=None):
+        """
+        Execute a spell effect.
+
+        Args:
+            spell: The spell to execute
+            spell_manager: Spell manager for projectile spells
+
+        Returns:
+            bool: True if spell executed successfully
+        """
+        from game.spell_system import Spell
+
+        # Self-targeted spells
+        if spell.is_self_target:
+            if spell.stats.healing > 0:
+                # Healing spell
+                heal_amount = spell.get_healing()
+                self.stats.heal(heal_amount)
+                logger.info(f"Healed for {heal_amount:.0f} health!")
+
+            if spell.stats.status_effect:
+                # Apply status effect to self
+                self.spell_caster.add_status_effect(
+                    spell.stats.status_effect,
+                    spell.stats.status_duration
+                )
+
+            if spell.spell_type == SpellType.TELEPORT:
+                # Teleport forward
+                direction = glm.normalize(glm.vec3(self.camera.front.x, 0.0, self.camera.front.z))
+                teleport_distance = spell.stats.range
+                self.position += direction * teleport_distance
+                self.camera.position = self.position + glm.vec3(0.0, self.height * 0.9, 0.0)
+                logger.info("Teleported!")
+
+            return True
+
+        # Projectile spells
+        if spell.is_projectile and spell_manager:
+            # Create projectile
+            cast_position = self.camera.position
+            cast_direction = self.camera.front
+            spell_manager.cast_projectile_spell(spell, cast_position, cast_direction, id(self))
+            logger.debug(f"Cast {spell.name} projectile")
+            return True
+
+        # Instant target spells (like lightning)
+        if spell.is_instant:
+            # These need a target - would be handled by game logic
+            return True
+
+        return False
+
+    def learn_spell(self, spell_type: SpellType):
+        """
+        Learn a new spell.
+
+        Args:
+            spell_type: Type of spell to learn
+        """
+        self.spell_caster.add_known_spell(spell_type)
+
+    def equip_spell_to_slot(self, spell_type: SpellType, slot: int) -> bool:
+        """
+        Equip a spell to a quick slot.
+
+        Args:
+            spell_type: Spell to equip
+            slot: Slot number (0-5)
+
+        Returns:
+            bool: True if successful
+        """
+        return self.spell_caster.equip_spell(spell_type, slot)
 
     # ===== Equipment & Progression Methods (Phase 5) =====
 

@@ -25,6 +25,12 @@ class EnemyType(Enum):
     NORMAL = auto()  # Balanced
     TANK = auto()  # High health, slow
     FAST = auto()  # Low health, fast, high damage
+    # Boss types
+    BOSS_CORRUPTED_GUARDIAN = auto()  # Forest boss
+    BOSS_CRYSTAL_TYRANT = auto()  # Crystal caves boss
+    BOSS_ANCIENT_WARDEN = auto()  # Ruins boss
+    BOSS_VOID_KNIGHT = auto()  # Dungeon boss
+    BOSS_SKY_SERPENT = auto()  # Floating islands boss
 
 
 class Enemy:
@@ -36,6 +42,12 @@ class Enemy:
         EnemyType.NORMAL: (60, 80, 10, 5),
         EnemyType.TANK: (120, 100, 8, 10),
         EnemyType.FAST: (40, 60, 15, 3),
+        # Boss stats (much higher for challenge)
+        EnemyType.BOSS_CORRUPTED_GUARDIAN: (400, 200, 25, 15),  # High health, nature/poison attacks
+        EnemyType.BOSS_CRYSTAL_TYRANT: (350, 150, 30, 20),  # High defense, crystal projectiles
+        EnemyType.BOSS_ANCIENT_WARDEN: (450, 180, 22, 25),  # Highest defense, slow but devastating
+        EnemyType.BOSS_VOID_KNIGHT: (500, 250, 28, 18),  # Balanced boss, dark magic
+        EnemyType.BOSS_SKY_SERPENT: (300, 200, 35, 12),  # Lower health, highest damage, aerial
     }
 
     # Enemy type speeds
@@ -44,6 +56,12 @@ class Enemy:
         EnemyType.NORMAL: 2.5,
         EnemyType.TANK: 1.5,
         EnemyType.FAST: 4.0,
+        # Boss speeds
+        EnemyType.BOSS_CORRUPTED_GUARDIAN: 3.0,  # Moderate speed
+        EnemyType.BOSS_CRYSTAL_TYRANT: 2.0,  # Slower, relies on projectiles
+        EnemyType.BOSS_ANCIENT_WARDEN: 1.8,  # Very slow tank
+        EnemyType.BOSS_VOID_KNIGHT: 2.8,  # Moderate-fast
+        EnemyType.BOSS_SKY_SERPENT: 4.5,  # Very fast, swooping attacks
     }
 
     def __init__(
@@ -87,9 +105,33 @@ class Enemy:
         self.aggro_range = config.ENEMY_AGGRO_RANGE
         self.chase_range = config.ENEMY_CHASE_RANGE
 
+        # Boss-specific properties
+        self.is_boss = self._check_if_boss()
+        if self.is_boss:
+            # Bosses have longer ranges and are more aggressive
+            self.attack_range = config.ENEMY_ATTACK_RANGE * 1.5
+            self.aggro_range = config.ENEMY_AGGRO_RANGE * 2.0
+            self.chase_range = config.ENEMY_CHASE_RANGE * 1.5
+            # Boss special attack timer
+            self.special_attack_cooldown = 0.0
+            self.special_attack_interval = 5.0  # Use special attack every 5 seconds
+
         # Rendering
-        self.scale = glm.vec3(0.5, 0.9, 0.5)  # Render scale
-        self.color = glm.vec3(0.8, 0.2, 0.2)  # Red-ish for enemies
+        if self.is_boss:
+            # Bosses are much larger
+            self.scale = glm.vec3(1.5, 2.5, 1.5)
+            # Boss-specific colors
+            boss_colors = {
+                EnemyType.BOSS_CORRUPTED_GUARDIAN: glm.vec3(0.2, 0.6, 0.3),  # Green (nature)
+                EnemyType.BOSS_CRYSTAL_TYRANT: glm.vec3(0.6, 0.3, 0.9),  # Purple (crystal)
+                EnemyType.BOSS_ANCIENT_WARDEN: glm.vec3(0.6, 0.5, 0.3),  # Bronze (ancient)
+                EnemyType.BOSS_VOID_KNIGHT: glm.vec3(0.3, 0.1, 0.4),  # Dark purple (void)
+                EnemyType.BOSS_SKY_SERPENT: glm.vec3(0.3, 0.7, 0.9),  # Sky blue
+            }
+            self.color = boss_colors.get(enemy_type, glm.vec3(0.8, 0.2, 0.2))
+        else:
+            self.scale = glm.vec3(0.5, 0.9, 0.5)  # Render scale
+            self.color = glm.vec3(0.8, 0.2, 0.2)  # Red-ish for enemies
 
         # Cached matrices for performance (avoid recalculating every frame)
         self._cached_model_matrix = None
@@ -215,6 +257,38 @@ class Enemy:
                 self.state = EnemyState.CHASE
 
         return result
+
+    def take_damage(self, damage: float):
+        """
+        Take direct damage (used by spells and environmental hazards).
+
+        Args:
+            damage: Amount of damage to take
+        """
+        if not self.stats.is_alive:
+            return
+
+        # Apply damage through stats (handles defense and death properly)
+        actual_damage = self.stats.take_damage(damage)
+
+        # If hit and not dead, enter aggro/chase state
+        if self.stats.is_alive:
+            if self.state == EnemyState.IDLE:
+                self.state = EnemyState.CHASE
+        else:
+            # Enemy died
+            self.state = EnemyState.DEAD
+
+    def _check_if_boss(self) -> bool:
+        """Check if this enemy is a boss type."""
+        boss_types = {
+            EnemyType.BOSS_CORRUPTED_GUARDIAN,
+            EnemyType.BOSS_CRYSTAL_TYRANT,
+            EnemyType.BOSS_ANCIENT_WARDEN,
+            EnemyType.BOSS_VOID_KNIGHT,
+            EnemyType.BOSS_SKY_SERPENT,
+        }
+        return self.enemy_type in boss_types
 
     def get_model_matrix(self) -> glm.mat4:
         """

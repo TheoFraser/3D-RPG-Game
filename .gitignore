@@ -31,6 +31,7 @@ virtualenv/
 # IDEs
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
@@ -93,7 +94,20 @@ htmlcov/
 BUGFIXES*.md
 PHASE*_PROGRESS.md
 IMPROVEMENTS.md
+
+# Session documentation (ignored - keep GAME_PLAN.md and TEST_PLAN.md)
+SESSION_SUMMARY.md
 TECHNICAL_REVIEW.md
+CRITICAL_FIXES_SUMMARY.md
+FIXES_COMPLETE.md
+WAYPOINT_INTEGRATION.md
+WAYPOINT_FEATURE.md
+MINIMAP_FEATURE.md
+BUGFIX_REPORT.md
+FIX_VERIFICATION_REPORT.md
+PROJECT_STATUS.md
+RARITY_ENUM_FIX_REPORT.md
+TESTING_GUIDE.md
 
 # Audio/Video recordings (if you record gameplay)
 *.mp4

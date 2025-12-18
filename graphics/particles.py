@@ -16,6 +16,15 @@ class ParticleType(Enum):
     RAIN = auto()              # Rain drops
     EMBERS = auto()            # Fire embers
     LEAVES = auto()            # Falling leaves
+    # Spell effect particles
+    MAGIC_TRAIL = auto()       # Arcane magic trail
+    FIRE_TRAIL = auto()        # Fire spell trail
+    ICE_TRAIL = auto()         # Ice spell trail
+    LIGHTNING_SPARK = auto()   # Lightning sparks
+    HOLY_LIGHT = auto()        # Healing/holy light
+    SPELL_IMPACT = auto()      # Generic spell impact explosion
+    # Player progression effects
+    LEVEL_UP = auto()          # Level-up celebration burst
 
 
 class Particle:
@@ -94,6 +103,77 @@ class Particle:
             self.gravity_scale = -0.3
             self.velocity.y = random.uniform(-0.5, -0.2)
 
+        # Spell particle types
+        elif self.particle_type == ParticleType.MAGIC_TRAIL:
+            self.size = 0.06 + random.random() * 0.04
+            self.color = glm.vec3(0.6 + random.random() * 0.2, 0.4 + random.random() * 0.2, 1.0)
+            self.gravity_scale = 0.0
+            # Slow drift
+            self.velocity *= 0.3
+
+        elif self.particle_type == ParticleType.FIRE_TRAIL:
+            self.size = 0.07 + random.random() * 0.05
+            # Orange to red
+            self.color = glm.vec3(1.0, 0.5 + random.random() * 0.3, 0.1 + random.random() * 0.1)
+            self.gravity_scale = 0.2  # Slight upward drift
+            self.velocity.y += random.uniform(0.2, 0.5)
+
+        elif self.particle_type == ParticleType.ICE_TRAIL:
+            self.size = 0.05 + random.random() * 0.03
+            # Light blue to white
+            self.color = glm.vec3(0.7 + random.random() * 0.3, 0.9 + random.random() * 0.1, 1.0)
+            self.gravity_scale = -0.2  # Slow fall
+            self.velocity *= 0.2
+
+        elif self.particle_type == ParticleType.LIGHTNING_SPARK:
+            self.size = 0.04 + random.random() * 0.03
+            # Bright yellow-white
+            self.color = glm.vec3(1.0, 1.0, 0.8 + random.random() * 0.2)
+            self.gravity_scale = 0.0
+            # Rapid random movement
+            self.velocity = glm.vec3(
+                random.uniform(-2.0, 2.0),
+                random.uniform(-2.0, 2.0),
+                random.uniform(-2.0, 2.0)
+            )
+
+        elif self.particle_type == ParticleType.HOLY_LIGHT:
+            self.size = 0.08 + random.random() * 0.06
+            # Warm golden light
+            self.color = glm.vec3(1.0, 0.9 + random.random() * 0.1, 0.6 + random.random() * 0.2)
+            self.gravity_scale = 0.3  # Float upward
+            self.velocity.y += random.uniform(0.5, 1.0)
+
+        elif self.particle_type == ParticleType.SPELL_IMPACT:
+            self.size = 0.1 + random.random() * 0.1
+            # Bright flash
+            self.color = glm.vec3(1.0, 1.0, 1.0)
+            self.gravity_scale = 0.0
+            # Explosive outward velocity
+            speed = random.uniform(1.0, 3.0)
+            direction = glm.normalize(glm.vec3(
+                random.uniform(-1.0, 1.0),
+                random.uniform(-1.0, 1.0),
+                random.uniform(-1.0, 1.0)
+            ))
+            self.velocity = direction * speed
+
+        elif self.particle_type == ParticleType.LEVEL_UP:
+            self.size = 0.15 + random.random() * 0.1
+            # Golden celebration particles with color variation
+            gold_variation = random.random() * 0.3
+            self.color = glm.vec3(1.0, 0.8 + gold_variation, gold_variation)
+            self.gravity_scale = -0.5  # Float upward
+            # Radial burst with upward bias
+            horizontal_speed = random.uniform(1.0, 2.5)
+            vertical_speed = random.uniform(2.0, 4.0)
+            angle = random.uniform(0, 2 * 3.14159)
+            self.velocity = glm.vec3(
+                horizontal_speed * glm.cos(angle),
+                vertical_speed,
+                horizontal_speed * glm.sin(angle)
+            )
+
     def update(self, delta_time: float) -> bool:
         """
         Update particle.
@@ -158,11 +238,12 @@ class ParticleEmitter:
 
     def update(self, delta_time: float):
         """Update emitter and all its particles."""
+        # Always update existing particles (even when emitter is disabled)
+        self.particles = [p for p in self.particles if p.update(delta_time)]
+
+        # Only emit new particles when emitter is enabled
         if not self.enabled:
             return
-
-        # Update existing particles
-        self.particles = [p for p in self.particles if p.update(delta_time)]
 
         # Emit new particles
         if len(self.particles) < self.max_particles:
@@ -203,6 +284,13 @@ class ParticleEmitter:
             ParticleType.RAIN: (2.0, 3.0),
             ParticleType.EMBERS: (2.0, 4.0),
             ParticleType.LEAVES: (5.0, 10.0),
+            # Spell particles (shorter lifetimes for performance)
+            ParticleType.MAGIC_TRAIL: (0.3, 0.6),
+            ParticleType.FIRE_TRAIL: (0.4, 0.8),
+            ParticleType.ICE_TRAIL: (0.5, 1.0),
+            ParticleType.LIGHTNING_SPARK: (0.1, 0.3),
+            ParticleType.HOLY_LIGHT: (0.8, 1.5),
+            ParticleType.SPELL_IMPACT: (0.2, 0.5),
         }
         lifetime = random.uniform(*lifetime_ranges.get(self.particle_type, (2.0, 4.0)))
 
@@ -324,3 +412,115 @@ class ParticleSystem:
             e for e in self.emitters
             if glm.length(e.position - player_position) <= max_distance
         ]
+
+    def create_spell_burst(self, position: glm.vec3, particle_type: ParticleType,
+                          particle_count: int = 15):
+        """
+        Create a one-time particle burst for spell effects.
+
+        Args:
+            position: Position to spawn particles
+            particle_type: Type of particles
+            particle_count: Number of particles to spawn
+        """
+        for _ in range(particle_count):
+            # Random velocity in all directions
+            vel = glm.vec3(
+                random.uniform(-1.5, 1.5),
+                random.uniform(-1.5, 1.5),
+                random.uniform(-1.5, 1.5)
+            )
+
+            # Get lifetime range
+            lifetime_ranges = {
+                ParticleType.MAGIC_TRAIL: (0.3, 0.6),
+                ParticleType.FIRE_TRAIL: (0.4, 0.8),
+                ParticleType.ICE_TRAIL: (0.5, 1.0),
+                ParticleType.LIGHTNING_SPARK: (0.1, 0.3),
+                ParticleType.HOLY_LIGHT: (0.8, 1.5),
+                ParticleType.SPELL_IMPACT: (0.2, 0.5),
+                ParticleType.LEVEL_UP: (1.0, 2.0),
+            }
+            lifetime = random.uniform(*lifetime_ranges.get(particle_type, (0.3, 0.8)))
+
+            # Create particle directly (not through an emitter for one-time bursts)
+            particle = Particle(glm.vec3(position), vel, lifetime, particle_type)
+
+            # Add to a temporary emitter or create a burst emitter
+            # Find or create a burst emitter
+            burst_emitter = None
+            for emitter in self.emitters:
+                if (hasattr(emitter, 'is_burst') and emitter.is_burst and
+                    glm.length(emitter.position - position) < 0.1):
+                    burst_emitter = emitter
+                    break
+
+            if burst_emitter is None:
+                # Create a disabled emitter just to hold burst particles
+                burst_emitter = ParticleEmitter(position, particle_type,
+                                               emission_rate=0.0, area_size=0.0)
+                burst_emitter.enabled = False
+                burst_emitter.is_burst = True
+                self.emitters.append(burst_emitter)
+
+            burst_emitter.particles.append(particle)
+
+    def create_spell_trail_particle(self, position: glm.vec3, particle_type: ParticleType):
+        """
+        Create a single trail particle for continuous spell effects.
+
+        Args:
+            position: Position to spawn particle
+            particle_type: Type of particle
+        """
+        vel = glm.vec3(
+            random.uniform(-0.3, 0.3),
+            random.uniform(-0.3, 0.3),
+            random.uniform(-0.3, 0.3)
+        )
+
+        lifetime_ranges = {
+            ParticleType.MAGIC_TRAIL: (0.3, 0.6),
+            ParticleType.FIRE_TRAIL: (0.4, 0.8),
+            ParticleType.ICE_TRAIL: (0.5, 1.0),
+        }
+        lifetime = random.uniform(*lifetime_ranges.get(particle_type, (0.3, 0.6)))
+
+        particle = Particle(glm.vec3(position), vel, lifetime, particle_type)
+
+        # Find or create trail emitter
+        trail_emitter = None
+        for emitter in self.emitters:
+            if hasattr(emitter, 'is_trail') and emitter.is_trail:
+                trail_emitter = emitter
+                break
+
+        if trail_emitter is None:
+            trail_emitter = ParticleEmitter(position, particle_type,
+                                           emission_rate=0.0, area_size=0.0)
+            trail_emitter.enabled = False
+            trail_emitter.is_trail = True
+            self.emitters.append(trail_emitter)
+
+        trail_emitter.particles.append(particle)
+
+    def render(self, view_matrix, projection_matrix, mesh=None):
+        """
+        Render all particles.
+
+        Args:
+            view_matrix: Camera view matrix
+            projection_matrix: Camera projection matrix
+            mesh: Optional mesh to use for particle rendering
+        """
+        if not self.enabled:
+            return
+
+        all_particles = self.get_all_particles()
+        if not all_particles:
+            return
+
+        # Render particles as small cubes/points
+        # For now, particles are rendered by the main game loop
+        # This method can be extended for custom particle rendering
+        pass

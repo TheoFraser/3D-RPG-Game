@@ -329,11 +329,17 @@ class DialogueManager:
                 count += 1
 
             return count
+        except FileNotFoundError as e:
+            logger.error(f"Dialogue file not found: {filepath}")
+            return 0
         except json.JSONDecodeError as e:
             logger.error(f"JSON parsing error in {filepath}: {e}")
             return 0
-        except Exception as e:
-            logger.error(f"Error loading dialogues from {filepath}: {e}")
+        except (IOError, OSError) as e:
+            logger.error(f"Error reading dialogue file {filepath}: {e}")
+            return 0
+        except (KeyError, ValueError, AttributeError) as e:
+            logger.error(f"Invalid dialogue structure in {filepath}: {e}")
             return 0
 
     def start_dialogue(self, dialogue_id):

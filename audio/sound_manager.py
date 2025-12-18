@@ -18,7 +18,7 @@ class SoundManager:
                 mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
                 self.sounds = {}
                 self.generate_sounds()
-            except Exception as e:
+            except pygame.error as e:
                 logger.warning(f"Audio initialization failed: {e}")
                 self.enabled = False
 

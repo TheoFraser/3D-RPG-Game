@@ -2,7 +2,7 @@
 from enum import Enum, auto
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
-from game.equipment import ItemRarity, ItemType
+from game.equipment import ItemRarity
 from game.logger import get_logger
 
 logger = get_logger(__name__)
@@ -387,12 +387,12 @@ class CraftingManager:
                 return False, "Failed to remove materials"
 
         # Add crafted item to inventory
-        success = inventory.add_item(recipe.result_item_id, recipe.result_quantity)
+        success = inventory.add_item(recipe.result_item_id, is_key_item=False, quantity=recipe.result_quantity)
         if not success:
             logger.error(f"Failed to add crafted item {recipe.result_item_id}")
             # Try to restore materials (best effort)
             for material_id, required_qty in recipe.required_materials:
-                inventory.add_item(material_id, required_qty)
+                inventory.add_item(material_id, is_key_item=False, quantity=required_qty)
             return False, "Inventory full"
 
         logger.info(f"Crafted {recipe.name} x{recipe.result_quantity}")

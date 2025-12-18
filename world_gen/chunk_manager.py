@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, List, Optional, Set, Tuple
 from collections import deque
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import config
 from world_gen.chunk import Chunk, ChunkState, ChunkData, world_to_chunk
 from world_gen.numba_terrain import (
@@ -39,10 +40,18 @@ class ChunkManager:
 
         # Chunk storage
         self.chunks: Dict[Tuple[int, int], Chunk] = {}
+        self.chunks_lock = threading.Lock()  # Thread-safe access to chunks dict
 
         # Generation queue
         self.generation_queue: deque = deque()
         self.upload_queue: deque = deque()
+
+        # Thread pool for chunk generation (2 workers to avoid blocking)
+        self.generation_executor = ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="ChunkGen"
+        )
+        self.pending_generations: Set[Tuple[int, int]] = set()  # Track in-progress generations
 
         # Track player chunk for change detection
         self.player_chunk: Optional[Tuple[int, int]] = None
@@ -132,24 +141,54 @@ class ChunkManager:
             self._unload_chunk(chunk_key)
 
     def _process_generation_queue(self) -> None:
-        """Process one chunk from the generation queue."""
+        """Process one chunk from the generation queue (submit to thread pool)."""
         if not self.generation_queue:
             return
 
+        # Only submit if we don't have too many pending generations
+        if len(self.pending_generations) >= 4:
+            return
+
         chunk_key = self.generation_queue.popleft()
-        if chunk_key not in self.chunks:
-            return
 
-        chunk = self.chunks[chunk_key]
-        if chunk.state != ChunkState.UNLOADED:
-            return
+        with self.chunks_lock:
+            if chunk_key not in self.chunks:
+                return
 
-        chunk.state = ChunkState.GENERATING
-        self._generate_chunk(chunk)
-        chunk.state = ChunkState.MESHING
+            chunk = self.chunks[chunk_key]
+            if chunk.state != ChunkState.UNLOADED:
+                return
 
-        # Queue for GPU upload
-        self.upload_queue.append(chunk_key)
+            # Mark as generating and track
+            chunk.state = ChunkState.GENERATING
+            self.pending_generations.add(chunk_key)
+
+        # Submit to thread pool for async generation
+        self.generation_executor.submit(self._generate_chunk_threaded, chunk, chunk_key)
+
+    def _generate_chunk_threaded(self, chunk: Chunk, chunk_key: Tuple[int, int]) -> None:
+        """
+        Generate chunk in background thread, then queue for GPU upload.
+
+        Args:
+            chunk: Chunk to generate
+            chunk_key: Chunk coordinates for tracking
+        """
+        try:
+            # Generate the chunk (CPU-intensive work happens here)
+            self._generate_chunk(chunk)
+
+            # Update state and queue for upload (must be done on main thread)
+            with self.chunks_lock:
+                chunk.state = ChunkState.MESHING
+                self.upload_queue.append(chunk_key)
+                self.pending_generations.discard(chunk_key)
+
+        except Exception as e:
+            logger.error(f"Error generating chunk {chunk_key}: {e}", exc_info=True)
+            with self.chunks_lock:
+                chunk.state = ChunkState.UNLOADED
+                self.pending_generations.discard(chunk_key)
 
     def _process_upload_queue(self) -> None:
         """Process one chunk from the upload queue."""
@@ -633,8 +672,14 @@ class ChunkManager:
         }
 
     def release(self) -> None:
-        """Release all GPU resources."""
+        """Release all GPU resources and shutdown thread pool."""
+        # Shutdown thread pool executor
+        logger.info("Shutting down chunk generation thread pool...")
+        self.generation_executor.shutdown(wait=True, cancel_futures=True)
+
+        # Release GPU resources
         for chunk in self.chunks.values():
             chunk.release_gpu()
         self.chunks.clear()
+
         logger.info("ChunkManager released")

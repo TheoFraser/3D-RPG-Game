@@ -70,6 +70,8 @@ A 3D open-world RPG built in Python with ModernGL and Pygame. Explore a vast pro
 - ✅ **Quest rewards** - XP, gold, and item rewards
 - ✅ **Quest journal** - View objectives and lore entries
 - ✅ **Quest UI** - Interactive quest log
+- ✅ **Quest waypoints** - Visual navigation markers for objectives
+- ✅ **Waypoint HUD** - On-screen distance and direction indicators
 
 ### Enemy System
 - ✅ **Enemy AI** - Enemies patrol, chase, and attack the player
@@ -85,9 +87,10 @@ A 3D open-world RPG built in Python with ModernGL and Pygame. Explore a vast pro
 - ✅ **Quest UI** - View and track quests
 - ✅ **Journal UI** - Objectives and lore
 - ✅ **Dialogue UI** - Interactive conversations
-- ✅ **Map system** - View world map
+- ✅ **Map system** - View world map (fullscreen overlay)
 - ✅ **Pause menu** - Game state management
-- ✅ **Minimap** - See nearby terrain (if implemented)
+- ✅ **Mini-map** - Always-visible corner map with terrain, waypoints, and player direction
+- ✅ **Mini-map controls** - Toggle, zoom (0.5x-3.0x), and position cycling
 
 ### Audio
 - ✅ **Biome-specific ambient audio** - Each biome has unique soundscapes
@@ -180,10 +183,15 @@ On first run, the game will:
 ### Interactions
 - **E** - Interact with NPCs, objects, and doors
 - **I** - Open/close Inventory
-- **M** - Open/close Map
+- **M** - Open/close Map (fullscreen)
 - **J** - Open/close Journal
 - **Q** - Open/close Quest Log
 - **ESC** - Pause/Resume game
+
+### Navigation
+- **N** - Toggle Mini-map visibility
+- **+/-** or **=/−** - Zoom mini-map in/out (0.5x to 3.0x)
+- **P** - Cycle mini-map position (corners)
 
 ### Inventory Management
 - **1-4** - Quick-use inventory slots (if implemented)

@@ -1,6 +1,9 @@
 """Quest system for tracking objectives and progression."""
 from enum import Enum
-from typing import Dict, List, Callable, Optional
+from typing import Dict, List, Callable, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from game.quest_waypoints import QuestWaypoint
 
 
 class QuestStatus(Enum):
@@ -49,6 +52,9 @@ class QuestObjective:
         # Rewards
         self.on_complete = None  # Callback when objective completes
 
+        # Waypoint for navigation (Phase 6 enhancement)
+        self.waypoint: Optional['QuestWaypoint'] = None
+
     def set_target(self, target):
         """
         Set the target count for this objective.
@@ -66,6 +72,15 @@ class QuestObjective:
             func: Function that returns bool (True if objective is complete)
         """
         self.completion_func = func
+
+    def set_waypoint(self, waypoint: Optional['QuestWaypoint']) -> None:
+        """
+        Set a waypoint for this objective.
+
+        Args:
+            waypoint: QuestWaypoint for navigation, or None to clear
+        """
+        self.waypoint = waypoint
 
     def progress(self, amount=1):
         """
@@ -151,6 +166,9 @@ class Quest:
         # NPCs
         self.quest_giver_npc = None  # NPC who gives the quest
         self.quest_complete_npc = None  # NPC to return to
+
+        # Prerequisites
+        self.prerequisites = []  # List of quest IDs that must be completed first
 
         # Rewards
         self.reward_text = ""
@@ -328,8 +346,8 @@ class QuestManager:
     def __init__(self):
         """Initialize quest manager."""
         self.quests = {}  # quest_id -> Quest
-        self.active_quests = []  # List of active quest IDs
-        self.completed_quests = []  # List of completed quest IDs
+        self.active_quests = set()  # Set of active quest IDs (O(1) lookups)
+        self.completed_quests = set()  # Set of completed quest IDs (O(1) lookups)
 
     def register_quest(self, quest):
         """
@@ -358,8 +376,13 @@ class QuestManager:
             return False
 
         quest = self.quests[quest_id]
+
+        # Check prerequisites
+        if not self.check_prerequisites(quest_id):
+            return False
+
         if quest.start():
-            self.active_quests.append(quest_id)
+            self.active_quests.add(quest_id)
             return True
 
         return False
@@ -381,8 +404,7 @@ class QuestManager:
         if quest.complete():
             if quest_id in self.active_quests:
                 self.active_quests.remove(quest_id)
-            if quest_id not in self.completed_quests:
-                self.completed_quests.append(quest_id)
+            self.completed_quests.add(quest_id)
             return True
 
         return False
@@ -409,10 +431,23 @@ class QuestManager:
         if completed:
             if quest_id in self.active_quests:
                 self.active_quests.remove(quest_id)
-            if quest_id not in self.completed_quests:
-                self.completed_quests.append(quest_id)
+            self.completed_quests.add(quest_id)
 
         return completed
+
+    def progress_objective(self, quest_id, objective_id, amount=1):
+        """
+        Alias for progress_quest with explicit objective ID.
+
+        Args:
+            quest_id: Quest ID
+            objective_id: Objective ID
+            amount: Amount to progress
+
+        Returns:
+            bool: True if quest completed
+        """
+        return self.progress_quest(quest_id, objective_id, amount)
 
     def get_quest(self, quest_id):
         """
@@ -452,6 +487,91 @@ class QuestManager:
         """Check if a quest is completed."""
         return quest_id in self.completed_quests
 
+    def check_prerequisites(self, quest_id):
+        """
+        Check if all prerequisites for a quest are met.
+
+        Args:
+            quest_id: Quest ID to check
+
+        Returns:
+            bool: True if all prerequisites are met
+        """
+        if quest_id not in self.quests:
+            return False
+
+        quest = self.quests[quest_id]
+
+        # No prerequisites means quest is available
+        if not quest.prerequisites:
+            return True
+
+        # Check each prerequisite
+        for prereq_id in quest.prerequisites:
+            if not self.is_quest_completed(prereq_id):
+                return False
+
+        return True
+
+    def is_quest_available(self, quest_id):
+        """
+        Check if a quest is available to start (prerequisites met and not started).
+
+        Args:
+            quest_id: Quest ID to check
+
+        Returns:
+            bool: True if quest can be started
+        """
+        if quest_id not in self.quests:
+            return False
+
+        quest = self.quests[quest_id]
+
+        # Already started or completed
+        if quest.status != QuestStatus.NOT_STARTED:
+            return False
+
+        # Check prerequisites
+        return self.check_prerequisites(quest_id)
+
+    def get_available_quests(self):
+        """
+        Get all quests that are available to start.
+
+        Returns:
+            List of Quest objects
+        """
+        available = []
+        for quest_id, quest in self.quests.items():
+            if self.is_quest_available(quest_id):
+                available.append(quest)
+        return available
+
+    def get_missing_prerequisites(self, quest_id):
+        """
+        Get list of prerequisite quests that are not yet completed.
+
+        Args:
+            quest_id: Quest ID to check
+
+        Returns:
+            List of quest IDs that are not completed
+        """
+        if quest_id not in self.quests:
+            return []
+
+        quest = self.quests[quest_id]
+        if not quest.prerequisites:
+            return []
+
+        missing = []
+        for prereq_id in quest.prerequisites:
+            if not self.is_quest_completed(prereq_id):
+                missing.append(prereq_id)
+
+        return missing
+
     def create_simple_quest(self, quest_id, title, description, objectives_list):
         """
         Create a simple quest with multiple objectives.
@@ -481,9 +601,35 @@ class QuestManager:
 
     def update(self):
         """Update all active quests (check for completion)."""
-        for quest_id in self.active_quests[:]:  # Copy list to allow modification
+        for quest_id in list(self.active_quests):  # Copy set to allow modification
             quest = self.quests.get(quest_id)
             if quest and quest.check_completion():
                 self.active_quests.remove(quest_id)
-                if quest_id not in self.completed_quests:
-                    self.completed_quests.append(quest_id)
+                self.completed_quests.add(quest_id)
+
+    def clear_all(self):
+        """Clear all quests (for new game sessions)."""
+        self.quests.clear()
+        self.active_quests.clear()
+        self.completed_quests.clear()
+
+    def get_active_waypoints(self) -> List['QuestWaypoint']:
+        """
+        Get all waypoints from active quest objectives.
+
+        Returns:
+            List of QuestWaypoint objects from active, incomplete objectives
+        """
+        waypoints = []
+
+        for quest_id in self.active_quests:
+            quest = self.quests.get(quest_id)
+            if not quest:
+                continue
+
+            # Get waypoints from incomplete objectives
+            for objective in quest.objectives:
+                if not objective.completed and objective.waypoint is not None:
+                    waypoints.append(objective.waypoint)
+
+        return waypoints

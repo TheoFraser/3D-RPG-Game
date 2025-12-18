@@ -175,3 +175,36 @@ class SpawnSystem:
 
         # Fallback to first choice
         return choices[0][0]
+
+    def spawn_dungeon_boss(
+        self,
+        dungeon_position: glm.vec3,
+        biome: int
+    ) -> Enemy:
+        """
+        Spawn a boss enemy for a dungeon based on biome.
+
+        Args:
+            dungeon_position: Center position of dungeon
+            biome: Biome ID to determine which boss
+
+        Returns:
+            Boss Enemy object
+        """
+        # Map biomes to boss types
+        biome_bosses = {
+            config.BIOME_GRASSLANDS: (EnemyType.BOSS_CORRUPTED_GUARDIAN, "Corrupted Forest Guardian"),
+            config.BIOME_ENCHANTED_FOREST: (EnemyType.BOSS_CORRUPTED_GUARDIAN, "Corrupted Ancient Treant"),
+            config.BIOME_CRYSTAL_CAVES: (EnemyType.BOSS_CRYSTAL_TYRANT, "Crystal Tyrant"),
+            config.BIOME_FLOATING_ISLANDS: (EnemyType.BOSS_SKY_SERPENT, "Elder Sky Serpent"),
+            config.BIOME_ANCIENT_RUINS: (EnemyType.BOSS_ANCIENT_WARDEN, "Ancient Warden"),
+        }
+
+        # Default to Void Knight for unknown biomes or general dungeons
+        boss_type, boss_name = biome_bosses.get(biome, (EnemyType.BOSS_VOID_KNIGHT, "Void Knight"))
+
+        # Spawn boss slightly elevated for dramatic entrance
+        boss_position = glm.vec3(dungeon_position.x, dungeon_position.y + 1.0, dungeon_position.z)
+        boss = Enemy(boss_position, boss_type, boss_name)
+
+        return boss

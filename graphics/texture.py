@@ -45,9 +45,15 @@ class Texture:
 
         try:
             img = Image.open(path).convert('RGBA')
-        except Exception as e:
+        except (IOError, OSError) as e:
             raise ValueError(
                 f"Failed to load texture: {path}\n"
+                f"Error: {e}\n"
+                f"Ensure the file is a valid image format (PNG, JPG, etc.)"
+            )
+        except Image.UnidentifiedImageError as e:
+            raise ValueError(
+                f"Invalid image format: {path}\n"
                 f"Error: {e}\n"
                 f"Ensure the file is a valid image format (PNG, JPG, etc.)"
             )

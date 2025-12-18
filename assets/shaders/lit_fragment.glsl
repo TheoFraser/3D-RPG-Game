@@ -15,6 +15,7 @@ uniform sampler2D texture0;
 uniform sampler2D shadow_map;  // Shadow map texture
 uniform vec3 view_pos;
 uniform bool shadows_enabled;  // Toggle shadows on/off
+uniform vec3 objectColor;  // Override color for dynamic objects (default: white)
 
 // Fog uniforms (Phase 3.3)
 uniform bool fog_enabled;
@@ -181,8 +182,8 @@ void main()
     // Sample base texture
     vec3 texture_color = texture(texture0, frag_texcoord).rgb;
 
-    // Blend texture with vertex color for biome-specific coloring
-    vec3 base_color = texture_color * frag_color;
+    // Blend texture with vertex color and object color for biome-specific coloring
+    vec3 base_color = texture_color * frag_color * objectColor;
 
     // Start with ambient light
     vec3 result = ambient_color * base_color;

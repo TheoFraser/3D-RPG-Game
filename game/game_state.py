@@ -12,10 +12,13 @@ class GameState(Enum):
     PAUSED = "paused"
     INVENTORY = "inventory"
     EQUIPMENT = "equipment"  # Phase 5: Equipment and stats
+    CRAFTING = "crafting"  # Crafting interface
     MAP = "map"
     JOURNAL = "journal"
     DIALOGUE = "dialogue"  # Phase 5: Talking to NPCs
     QUEST_LOG = "quest_log"  # Phase 5: Viewing quests
+    SAVE_MENU = "save_menu"  # Save game menu
+    LOAD_MENU = "load_menu"  # Load game menu
 
 
 class StateManager:

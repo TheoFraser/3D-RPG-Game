@@ -169,6 +169,71 @@ ENEMY_ATTACK_RANGE = 2.0  # Distance at which enemies attack
 ENEMY_RETREAT_HEALTH = 0.2  # Health percentage to trigger retreat
 
 # =============================================================================
+# LEVELING SETTINGS (Phase 5.2+)
+# =============================================================================
+
+# Level progression
+MAX_LEVEL = 30
+STARTING_LEVEL = 1
+
+# XP thresholds for each level (exponential curve)
+# Level 1->2 needs 100 XP, 2->3 needs 200 more (300 total), etc.
+XP_THRESHOLDS = [
+    0,      # Level 1 (starting)
+    100,    # Level 2
+    300,    # Level 3
+    600,    # Level 4
+    1000,   # Level 5
+    1500,   # Level 6
+    2100,   # Level 7
+    2800,   # Level 8
+    3600,   # Level 9
+    4500,   # Level 10
+    5500,   # Level 11
+    6600,   # Level 12
+    7800,   # Level 13
+    9100,   # Level 14
+    10500,  # Level 15
+    12000,  # Level 16
+    13600,  # Level 17
+    15300,  # Level 18
+    17100,  # Level 19
+    19000,  # Level 20
+    21000,  # Level 21
+    23100,  # Level 22
+    25300,  # Level 23
+    27600,  # Level 24
+    30000,  # Level 25
+    32500,  # Level 26
+    35100,  # Level 27
+    37800,  # Level 28
+    40600,  # Level 29
+    43500,  # Level 30 (max)
+]
+
+# Stat bonuses per level
+LEVEL_HEALTH_BONUS = 10  # +10 max health per level
+LEVEL_STAMINA_BONUS = 5  # +5 max stamina per level
+LEVEL_DAMAGE_BONUS = 2   # +2 base damage per level
+LEVEL_DEFENSE_BONUS = 1  # +1 defense per level
+
+# XP rewards by enemy type
+ENEMY_XP_GOBLIN = 50
+ENEMY_XP_ORC = 75
+ENEMY_XP_WOLF = 40
+ENEMY_XP_BEAR = 100
+ENEMY_XP_SPIDER = 35
+ENEMY_XP_SKELETON = 60
+ENEMY_XP_ZOMBIE = 55
+
+# Boss XP rewards (much higher for major encounters)
+BOSS_XP_CORRUPTED_GUARDIAN = 500
+BOSS_XP_CRYSTAL_TYRANT = 600
+BOSS_XP_ANCIENT_WARDEN = 700
+BOSS_XP_VOID_KNIGHT = 800
+BOSS_XP_SKY_SERPENT = 650
+
+# =============================================================================
 # EQUIPMENT SETTINGS (Phase 5+)
 # =============================================================================
 

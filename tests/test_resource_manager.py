@@ -40,6 +40,9 @@ class TestResourceManager(unittest.TestCase):
         """Test shader loading and caching."""
         # Create temporary shader files
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Create ResourceManager with temp directory as base path for testing
+            test_resource_manager = ResourceManager(self.ctx, base_path=tmpdir)
+
             vertex_path = os.path.join(tmpdir, "test_vertex.glsl")
             fragment_path = os.path.join(tmpdir, "test_fragment.glsl")
 
@@ -62,20 +65,20 @@ void main() {
 """)
 
             # Load shader first time
-            shader1 = self.resource_manager.load_shader("test_shader", vertex_path, fragment_path)
+            shader1 = test_resource_manager.load_shader("test_shader", vertex_path, fragment_path)
             self.assertIsNotNone(shader1)
 
             # Verify it's cached
-            stats = self.resource_manager.get_stats()
+            stats = test_resource_manager.get_stats()
             self.assertEqual(stats['shaders_loaded'], 1)
             self.assertEqual(stats['total_shader_refs'], 1)
 
             # Load same shader again - should return cached version
-            shader2 = self.resource_manager.load_shader("test_shader", vertex_path, fragment_path)
+            shader2 = test_resource_manager.load_shader("test_shader", vertex_path, fragment_path)
             self.assertIs(shader1, shader2, "Should return same cached shader instance")
 
             # Verify reference count increased
-            stats = self.resource_manager.get_stats()
+            stats = test_resource_manager.get_stats()
             self.assertEqual(stats['shaders_loaded'], 1)
             self.assertEqual(stats['total_shader_refs'], 2)
 
@@ -169,6 +172,9 @@ void main() {
     def test_release_shader(self):
         """Test shader reference counting and release."""
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Create ResourceManager with temp directory as base path for testing
+            test_resource_manager = ResourceManager(self.ctx, base_path=tmpdir)
+
             vertex_path = os.path.join(tmpdir, "test_vertex.glsl")
             fragment_path = os.path.join(tmpdir, "test_fragment.glsl")
 
@@ -190,21 +196,21 @@ void main() {
 """)
 
             # Load shader twice (ref count = 2)
-            self.resource_manager.load_shader("test_shader", vertex_path, fragment_path)
-            self.resource_manager.load_shader("test_shader", vertex_path, fragment_path)
+            test_resource_manager.load_shader("test_shader", vertex_path, fragment_path)
+            test_resource_manager.load_shader("test_shader", vertex_path, fragment_path)
 
-            stats = self.resource_manager.get_stats()
+            stats = test_resource_manager.get_stats()
             self.assertEqual(stats['total_shader_refs'], 2)
 
             # Release once (ref count = 1)
-            self.resource_manager.release_shader("test_shader")
-            stats = self.resource_manager.get_stats()
+            test_resource_manager.release_shader("test_shader")
+            stats = test_resource_manager.get_stats()
             self.assertEqual(stats['total_shader_refs'], 1)
             self.assertEqual(stats['shaders_loaded'], 1)
 
             # Release again (ref count = 0, should be removed)
-            self.resource_manager.release_shader("test_shader")
-            stats = self.resource_manager.get_stats()
+            test_resource_manager.release_shader("test_shader")
+            stats = test_resource_manager.get_stats()
             self.assertEqual(stats['total_shader_refs'], 0)
             self.assertEqual(stats['shaders_loaded'], 0)
 
@@ -231,6 +237,9 @@ void main() {
     def test_clear_cache(self):
         """Test clearing all cached resources."""
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Create ResourceManager with temp directory as base path for testing
+            test_resource_manager = ResourceManager(self.ctx, base_path=tmpdir)
+
             vertex_path = os.path.join(tmpdir, "test_vertex.glsl")
             fragment_path = os.path.join(tmpdir, "test_fragment.glsl")
 
@@ -252,18 +261,18 @@ void main() {
 """)
 
             # Load some resources
-            self.resource_manager.load_shader("test_shader", vertex_path, fragment_path)
-            self.resource_manager.create_procedural_texture("test_texture", "checkerboard")
+            test_resource_manager.load_shader("test_shader", vertex_path, fragment_path)
+            test_resource_manager.create_procedural_texture("test_texture", "checkerboard")
 
-            stats = self.resource_manager.get_stats()
+            stats = test_resource_manager.get_stats()
             self.assertEqual(stats['shaders_loaded'], 1)
             self.assertEqual(stats['textures_loaded'], 1)
 
             # Clear cache
-            self.resource_manager.clear_cache()
+            test_resource_manager.clear_cache()
 
             # Verify all resources released
-            stats = self.resource_manager.get_stats()
+            stats = test_resource_manager.get_stats()
             self.assertEqual(stats['shaders_loaded'], 0)
             self.assertEqual(stats['textures_loaded'], 0)
             self.assertEqual(stats['models_loaded'], 0)
@@ -291,6 +300,9 @@ void main() {
     def test_string_representation(self):
         """Test string representation of ResourceManager."""
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Create ResourceManager with temp directory as base path for testing
+            test_resource_manager = ResourceManager(self.ctx, base_path=tmpdir)
+
             vertex_path = os.path.join(tmpdir, "test_vertex.glsl")
             fragment_path = os.path.join(tmpdir, "test_fragment.glsl")
 
@@ -311,10 +323,10 @@ void main() {
 }
 """)
 
-            self.resource_manager.load_shader("test_shader", vertex_path, fragment_path)
-            self.resource_manager.create_procedural_texture("test_texture", "checkerboard")
+            test_resource_manager.load_shader("test_shader", vertex_path, fragment_path)
+            test_resource_manager.create_procedural_texture("test_texture", "checkerboard")
 
-            str_repr = str(self.resource_manager)
+            str_repr = str(test_resource_manager)
             self.assertIn("ResourceManager", str_repr)
             self.assertIn("shaders=1", str_repr)
             self.assertIn("textures=1", str_repr)

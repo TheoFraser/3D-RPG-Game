@@ -50,8 +50,11 @@ class AudioLayer:
             self.sound = pygame.mixer.Sound(self.file_path)
             logger.debug(f"Loaded audio layer: {self.name}")
             return True
-        except Exception as e:
+        except pygame.error as e:
             logger.warning(f"Failed to load audio layer {self.name}: {e}")
+            return False
+        except (IOError, OSError, MemoryError) as e:
+            logger.warning(f"Failed to read audio file {self.file_path}: {e}")
             return False
 
     def play(self, loop: bool = True):
@@ -171,7 +174,7 @@ class BiomeAudioManager:
             try:
                 pygame.mixer.init()
                 logger.info("Initialized pygame mixer for audio")
-            except Exception as e:
+            except pygame.error as e:
                 logger.error(f"Failed to initialize pygame mixer: {e}")
                 self.enabled = False
                 return

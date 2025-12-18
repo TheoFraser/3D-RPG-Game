@@ -2,14 +2,16 @@
 import pygame
 from pygame.locals import (
     QUIT, KEYDOWN, KEYUP, MOUSEBUTTONDOWN, MOUSEBUTTONUP, MOUSEMOTION,
-    K_ESCAPE, K_TAB, K_e, K_i, K_m, K_j, K_c, K_q,
-    K_SPACE, K_RETURN, K_1, K_2, K_3, K_4,
-    K_LSHIFT, K_w, K_s, K_a, K_d, K_r
+    K_ESCAPE, K_TAB, K_e, K_i, K_m, K_j, K_c, K_q, K_v, K_n, K_p,
+    K_SPACE, K_RETURN, K_1, K_2, K_3, K_4, K_5, K_6, K_7, K_8,
+    K_LSHIFT, K_w, K_s, K_a, K_d, K_r,
+    K_F5, K_F9, K_UP, K_DOWN, K_DELETE, K_EQUALS, K_PLUS, K_MINUS
 )
 import glm
 import numpy as np
 import time
 import logging
+from typing import Any
 
 import config
 from engine.window import Window
@@ -39,9 +41,51 @@ from game.item_database import get_item
 from game.progression import calculate_enemy_xp
 from game.damage_numbers import DamageNumberManager
 from engine.camera_shake import ShakePresets
+from game.spell_system import SpellManager, get_spell_particle_type
+from graphics.particles import ParticleType
 
 # Initialize logging
 logger = get_logger(__name__)
+
+
+class ResourceLifecycleManager:
+    """Manages resources with proper initialization and cleanup ordering."""
+
+    def __init__(self) -> None:
+        """Initialize the resource lifecycle manager."""
+        self.resources: list[tuple[str, Any, str]] = []  # List of (name, resource, cleanup_method) tuples
+
+    def register(self, name: str, resource: Any, cleanup_method: str = "cleanup") -> None:
+        """
+        Register a resource for lifecycle management.
+
+        Args:
+            name: Human-readable name for the resource
+            resource: The resource object
+            cleanup_method: Name of the cleanup method to call (default: "cleanup")
+        """
+        if resource is not None:
+            self.resources.append((name, resource, cleanup_method))
+            logger.debug(f"Registered resource: {name}")
+
+    def cleanup_all(self) -> None:
+        """Clean up all registered resources in reverse order of registration."""
+        # Clean up in reverse order (LIFO - last in, first out)
+        for name, resource, cleanup_method in reversed(self.resources):
+            try:
+                if hasattr(resource, cleanup_method):
+                    method = getattr(resource, cleanup_method)
+                    method()
+                    logger.debug(f"Cleaned up resource: {name}")
+                elif hasattr(resource, 'release'):
+                    resource.release()
+                    logger.debug(f"Released resource: {name}")
+                else:
+                    logger.warning(f"Resource {name} has no cleanup method")
+            except Exception as e:
+                logger.error(f"Error cleaning up {name}: {e}")
+
+        self.resources.clear()
 
 
 class Game:
@@ -49,8 +93,15 @@ class Game:
 
     def __init__(self):
         """Initialize the game."""
+        # Initialize resource lifecycle manager first
+        self.resource_lifecycle = ResourceLifecycleManager()
+
         self.window = Window()
+        self.resource_lifecycle.register("window", self.window)
+
         self.resource_manager = ResourceManager(self.window.ctx)
+        self.resource_lifecycle.register("resource_manager", self.resource_manager, "clear_cache")
+
         self.player = Player(position=glm.vec3(*config.PLAYER_SPAWN_POSITION))  # Start high, will drop to terrain
         self.clock = pygame.time.Clock()
         self.running = True
@@ -75,10 +126,14 @@ class Game:
         # Game systems
         self.inventory = Inventory()
         self.sound_manager = SoundManager(enabled=True)
+        self.resource_lifecycle.register("sound_manager", self.sound_manager)
+
         self.state_manager = StateManager()
         self.ui = UI(self.window.width, self.window.height, ctx=self.window.ctx)
         self.light_manager = LightManager(max_lights=8)
+
         self.shadow_map_manager = ShadowMapManager(self.window.ctx, max_shadow_maps=4)
+        self.resource_lifecycle.register("shadow_map_manager", self.shadow_map_manager, "clear_all")
 
         # Combat system (Phase 3) - Create enemy manager first for world
         self.enemy_manager = EnemyManager()
@@ -87,14 +142,35 @@ class Game:
 
         # Game world system - manages terrain, entities, NPCs, enemies
         self.world = GameWorld(self.window.ctx, None, self.enemy_manager)  # Will set shader in setup_scene
+        self.resource_lifecycle.register("world", self.world)
 
         # Phase 5 systems
         self.dialogue_manager = DialogueManager()
         self.quest_manager = QuestManager()
         self.active_npc = None  # Currently interacting NPC
 
+        # Waypoint system for quest navigation
+        from game.quest_waypoints import WaypointManager
+        self.waypoint_manager = WaypointManager()
+
+        # Crafting system
+        from game.crafting import get_crafting_manager
+        self.crafting_manager = get_crafting_manager()
+        self.selected_recipe_index = 0  # Currently selected recipe in crafting menu
+        self.cached_recipes = []  # Cache discovered recipes to avoid recalculating every frame
+        logger.info(f"Crafting system initialized with {len(self.crafting_manager.recipes)} recipes")
+
+        # Save/Load system
+        from game.save_system import SaveSystem
+        self.save_system = SaveSystem()
+        self.selected_save_slot = 1  # Currently selected slot in save/load menu
+        self.play_time = 0.0  # Total playtime in seconds
+
         # Combat feedback systems
         self.damage_numbers = DamageNumberManager()
+
+        # Spell system
+        self.spell_manager = SpellManager()
 
         # Phase 8: Atmosphere systems
         from graphics.particles import ParticleSystem
@@ -105,6 +181,21 @@ class Game:
         self.day_night_cycle = DayNightCycle(day_length=600.0, start_time=0.5)  # 10 min days, start at noon
         self.weather_system = WeatherSystem(self.particle_system)
 
+        # Setup level-up particle effect callback
+        original_on_level_up = self.player.progression.on_level_up
+        def level_up_with_particles(new_level: int):
+            # Call original callback
+            if original_on_level_up:
+                original_on_level_up(new_level)
+            # Create level-up particle burst at player position
+            from graphics.particles import ParticleType
+            self.particle_system.create_spell_burst(
+                self.player.position + glm.vec3(0, 1.0, 0),  # Slightly above player
+                ParticleType.LEVEL_UP,
+                particle_count=50
+            )
+        self.player.progression.on_level_up = level_up_with_particles
+
         # Biome audio system (Phase 7)
         from game.biome_audio import get_biome_audio_manager
         self.biome_audio = get_biome_audio_manager()
@@ -113,6 +204,7 @@ class Game:
         # Vegetation renderer (Phase 7)
         from graphics.vegetation_renderer import VegetationRenderer
         self.vegetation_renderer = VegetationRenderer(self.window.ctx)
+        self.resource_lifecycle.register("vegetation_renderer", self.vegetation_renderer, "release")
         logger.info("Vegetation renderer initialized")
 
         # Initialize journal with default objectives and lore
@@ -167,6 +259,7 @@ class Game:
 
         # Create skybox
         self.skybox = Skybox(self.window.ctx, self.skybox_shader)
+        self.resource_lifecycle.register("skybox", self.skybox, "release")
 
         # Set lit shader for world rendering (now that it's loaded)
         self.world.lit_shader = self.lit_shader
@@ -179,9 +272,15 @@ class Game:
         self.ground_texture = self.resource_manager.create_procedural_texture(
             "grid", "grid", size=512, grid_size=64, line_width=3
         )
+        # Create white texture for colored objects (projectiles, particles)
+        import numpy as np
+        white_data = np.full((4, 4, 3), 255, dtype=np.uint8)
+        self.white_texture = self.window.ctx.texture((4, 4), 3, white_data.tobytes())
+        self.white_texture.filter = (self.window.ctx.LINEAR, self.window.ctx.LINEAR)
 
         # Create meshes (using lit shader for proper lighting)
         self.cube_mesh = Mesh.create_cube(self.window.ctx, self.lit_shader, textured=True)
+        self.resource_lifecycle.register("cube_mesh", self.cube_mesh, "release")
 
         # Test OBJ model loading (Phase 2.2)
         try:
@@ -198,8 +297,11 @@ class Game:
             else:
                 self.test_obj_mesh = None
                 logger.warning("No meshes found in test OBJ model")
-        except Exception as e:
-            logger.error(f"Failed to load test OBJ model: {e}")
+        except FileNotFoundError:
+            logger.error("Test OBJ model file not found")
+            self.test_obj_mesh = None
+        except (ValueError, IndexError, KeyError) as e:
+            logger.error(f"Failed to parse test OBJ model: {e}")
             self.test_obj_mesh = None
 
         # Setup lighting (Phase 3.1)
@@ -246,14 +348,25 @@ class Game:
                 # Print level up messages
                 if levels_gained:
                     logger.info(f"{enemy.name} defeated! Gained {len(levels_gained)} level(s)!")
-            except Exception as e:
-                logger.error(f"Failed to calculate/grant XP for {enemy.name}: {e}")
+            except (AttributeError, ValueError, TypeError) as e:
+                logger.error(f"Failed to calculate/grant XP for {enemy.name}: {e}", exc_info=True)
                 # Continue with loot generation even if XP fails
 
             # Generate loot drops
             try:
                 from game.item_database import ItemType
-                loot_item_ids = self.loot_system.generate_loot(enemy_type_name, enemy.name)
+
+                # Bosses get special loot treatment
+                is_boss = hasattr(enemy, 'is_boss') and enemy.is_boss
+                if is_boss:
+                    # Bosses drop guaranteed epic/legendary items and more gold
+                    logger.info(f"Boss defeated: {enemy.name}!")
+                    loot_item_ids = self.loot_system.generate_boss_loot(enemy_type_name, enemy.name)
+
+                    # Progress boss quest objectives
+                    self._progress_boss_quest(enemy)
+                else:
+                    loot_item_ids = self.loot_system.generate_loot(enemy_type_name, enemy.name)
 
                 if loot_item_ids:
                     logger.info(f"{enemy.name} dropped {len(loot_item_ids)} item(s)!")
@@ -281,7 +394,7 @@ class Game:
                                     items_added += 1
                                 elif item_type in [ItemType.WEAPON, ItemType.ARMOR, ItemType.ACCESSORY]:
                                     # Create EquipmentItem and add to equipment inventory
-                                    from game.equipment import EquipmentItem, EquipmentSlot
+                                    from game.equipment import EquipmentItem, EquipmentSlot, ItemRarity
                                     from game.loot_system import LootRarity
 
                                     # Map item type to equipment slot
@@ -291,10 +404,24 @@ class Game:
                                         ItemType.ACCESSORY: EquipmentSlot.ACCESSORY,
                                     }
 
+                                    # Validate slot mapping exists
+                                    if item_type not in slot_map:
+                                        logger.error(f"Unknown equipment type {item_type} for item {item_id}")
+                                        continue
+
+                                    # Convert LootRarity to ItemRarity
+                                    loot_rarity = item_data.get("rarity", LootRarity.COMMON)
+                                    # Handle both enum and string rarity values
+                                    if isinstance(loot_rarity, str):
+                                        item_rarity = ItemRarity[loot_rarity.upper()]
+                                    else:
+                                        item_rarity = ItemRarity[loot_rarity.name]
+
                                     equip_item = EquipmentItem(
                                         id=item_id,
                                         name=item_data["name"],
-                                        rarity=item_data.get("rarity", LootRarity.COMMON),
+                                        description=item_data.get("description", ""),
+                                        rarity=item_rarity,
                                         slot=slot_map[item_type],
                                         damage_bonus=item_data.get("damage", 0),
                                         defense_bonus=item_data.get("defense", 0),
@@ -311,18 +438,62 @@ class Game:
                                 logger.warning(f"Item {item_id} returned None from database")
                         except ValueError as e:
                             logger.error(f"Failed to get item {item_id} from database: {e}")
-                        except Exception as e:
-                            logger.error(f"Unexpected error adding item {item_id} to inventory: {e}")
+                        except (AttributeError, KeyError, TypeError) as e:
+                            logger.error(f"Failed to add item {item_id} to inventory: {e}", exc_info=True)
 
                     if items_added < len(loot_item_ids):
                         logger.warning(f"Only added {items_added}/{len(loot_item_ids)} items to inventory")
                 else:
                     logger.info(f"{enemy.name} defeated! No loot dropped.")
-            except Exception as e:
-                logger.error(f"Failed to generate loot for {enemy.name}: {e}")
+            except (ImportError, AttributeError, ValueError) as e:
+                logger.error(f"Failed to generate loot for {enemy.name}: {e}", exc_info=True)
 
         except Exception as e:
             logger.error(f"Critical error in _on_enemy_defeated: {e}", exc_info=True)
+
+    def _progress_boss_quest(self, boss: Enemy) -> None:
+        """
+        Progress quest objectives when a boss is defeated.
+
+        Args:
+            boss: The defeated boss enemy
+        """
+        try:
+            # Map boss types to quest IDs
+            boss_quest_map = {
+                EnemyType.BOSS_CORRUPTED_GUARDIAN: "corrupted_forest_boss",
+                EnemyType.BOSS_CRYSTAL_TYRANT: "crystal_tyrant_boss",
+                EnemyType.BOSS_ANCIENT_WARDEN: "ancient_warden_boss",
+                EnemyType.BOSS_VOID_KNIGHT: "void_knight_boss",
+                EnemyType.BOSS_SKY_SERPENT: "sky_serpent_boss",
+            }
+
+            quest_id = boss_quest_map.get(boss.enemy_type)
+            if not quest_id:
+                logger.warning(f"No quest found for boss type {boss.enemy_type}")
+                return
+
+            quest = self.quest_manager.get_quest(quest_id)
+            if not quest:
+                logger.debug(f"Quest {quest_id} not found or not active")
+                return
+
+            # Progress the defeat objective for this boss
+            objective_map = {
+                "corrupted_forest_boss": "defeat_guardian",
+                "crystal_tyrant_boss": "defeat_tyrant",
+                "ancient_warden_boss": "defeat_warden",
+                "void_knight_boss": "defeat_void_knight",
+                "sky_serpent_boss": "defeat_serpent",
+            }
+
+            objective_id = objective_map.get(quest_id)
+            if objective_id:
+                self.quest_manager.progress_objective(quest_id, objective_id, 1)
+                logger.info(f"Quest objective '{objective_id}' progressed for defeating {boss.name}")
+
+        except Exception as e:
+            logger.error(f"Error progressing boss quest: {e}", exc_info=True)
 
     def setup_lights(self):
         """Setup scene lighting (Phase 3.1)."""
@@ -400,9 +571,11 @@ class Game:
         try:
             count = self.dialogue_manager.load_dialogues_from_json("assets/dialogues.json")
             logger.info(f"Loaded {count} dialogues from file")
-        except Exception as e:
-            logger.warning(f"Could not load dialogues.json: {e}")
-            # Create fallback dialogues
+        except FileNotFoundError:
+            logger.warning("dialogues.json not found, using fallback dialogues")
+            self._create_fallback_dialogues()
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.warning(f"Invalid dialogues.json format: {e}, using fallback dialogues")
             self._create_fallback_dialogues()
 
         # Create quests
@@ -471,8 +644,24 @@ class Game:
 
     def _create_quests(self):
         """Create game quests."""
-        # TODO: Add open world quests when enemies and villages are implemented
-        logger.info(f"Quest system initialized")
+        from game.boss_quests import register_all_boss_quests
+        from game.main_quest import register_main_quest_line
+        from game.side_quests import register_all_side_quests
+
+        # Register main quest storyline (3 acts)
+        main_quest_ids = register_main_quest_line(self.quest_manager, self.player)
+        logger.info(f"Registered {len(main_quest_ids)} main quest acts")
+
+        # Register all boss encounter quests
+        boss_quest_ids = register_all_boss_quests(self.quest_manager, self.player)
+        logger.info(f"Registered {len(boss_quest_ids)} boss quests")
+
+        # Register side quests
+        side_quest_ids = register_all_side_quests(self.quest_manager, self.player)
+        logger.info(f"Registered {len(side_quest_ids)} side quests")
+
+        total_quests = len(main_quest_ids) + len(boss_quest_ids) + len(side_quest_ids)
+        logger.info(f"Quest system initialized with {total_quests} total quests")
 
     def handle_input(self):
         """Handle all input events."""
@@ -507,7 +696,7 @@ class Game:
                             else:
                                 # Attack animation even if no target
                                 self.player.attack()
-                        except Exception as e:
+                        except (AttributeError, TypeError, ValueError) as e:
                             logger.error(f"Error during combat attack: {e}", exc_info=True)
 
             elif event.type == MOUSEBUTTONUP:
@@ -515,7 +704,7 @@ class Game:
                 if event.button == 3:  # Right mouse button
                     try:
                         self.player.stop_block()
-                    except Exception as e:
+                    except AttributeError as e:
                         logger.error(f"Error stopping block: {e}")
 
             elif event.type == KEYDOWN:
@@ -523,7 +712,7 @@ class Game:
                     # ESC toggles pause or exits menus/UI
                     if self.state_manager.current_state == GameState.PLAYING:
                         self.state_manager.toggle_pause()
-                    elif self.state_manager.current_state in [GameState.PAUSED, GameState.INVENTORY, GameState.EQUIPMENT, GameState.MAP, GameState.JOURNAL, GameState.QUEST_LOG]:
+                    elif self.state_manager.current_state in [GameState.PAUSED, GameState.INVENTORY, GameState.EQUIPMENT, GameState.CRAFTING, GameState.MAP, GameState.JOURNAL, GameState.QUEST_LOG, GameState.SAVE_MENU, GameState.LOAD_MENU]:
                         self.state_manager.set_state(GameState.PLAYING)
                     elif self.state_manager.current_state == GameState.DIALOGUE:
                         # Exit dialogue
@@ -592,12 +781,126 @@ class Game:
                         self.state_manager.set_state(GameState.PLAYING)
                     elif self.state_manager.is_playing():
                         self.state_manager.set_state(GameState.EQUIPMENT)
+                elif event.key == K_v:
+                    # Toggle crafting menu
+                    if self.state_manager.current_state == GameState.CRAFTING:
+                        self.state_manager.set_state(GameState.PLAYING)
+                    elif self.state_manager.is_playing():
+                        self.selected_recipe_index = 0  # Reset selection when opening
+                        # Cache discovered recipes to avoid recalculating every frame
+                        self.cached_recipes = self.crafting_manager.get_all_discovered_recipes()
+                        self.state_manager.set_state(GameState.CRAFTING)
                 elif event.key == K_q:
                     # Toggle quest log
                     if self.state_manager.current_state == GameState.QUEST_LOG:
                         self.state_manager.set_state(GameState.PLAYING)
                     elif self.state_manager.is_playing():
                         self.state_manager.set_state(GameState.QUEST_LOG)
+                elif event.key == K_n:
+                    # Toggle mini-map
+                    if self.state_manager.is_playing():
+                        status = self.ui.toggle_minimap()
+                        logger.info(f"Mini-map {'enabled' if status else 'disabled'}")
+                elif event.key == K_EQUALS or event.key == K_PLUS:
+                    # Zoom in mini-map
+                    if self.state_manager.is_playing():
+                        zoom = self.ui.zoom_minimap(1)
+                        logger.info(f"Mini-map zoom: {zoom:.1f}x")
+                elif event.key == K_MINUS:
+                    # Zoom out mini-map
+                    if self.state_manager.is_playing():
+                        zoom = self.ui.zoom_minimap(-1)
+                        logger.info(f"Mini-map zoom: {zoom:.1f}x")
+                elif event.key == K_p:
+                    # Cycle mini-map position
+                    if self.state_manager.is_playing():
+                        position = self.ui.cycle_minimap_position()
+                        logger.info(f"Mini-map position: {position}")
+                elif event.key == K_F5:
+                    # Open save menu
+                    if self.state_manager.is_playing() or self.state_manager.is_paused():
+                        self.state_manager.set_state(GameState.SAVE_MENU)
+                elif event.key == K_F9:
+                    # Open load menu
+                    if self.state_manager.is_playing() or self.state_manager.is_paused():
+                        self.state_manager.set_state(GameState.LOAD_MENU)
+
+                # Save/Load menu controls
+                if self.state_manager.current_state == GameState.SAVE_MENU:
+                    if event.key == K_UP:
+                        self.selected_save_slot = max(1, self.selected_save_slot - 1)
+                    elif event.key == K_DOWN:
+                        self.selected_save_slot = min(5, self.selected_save_slot + 1)
+                    elif event.key == K_RETURN:
+                        # Perform save
+                        from game.save_system import serialize_game_state
+                        game_state = serialize_game_state(
+                            self.player, self.inventory, self.quest_manager,
+                            self.player.equipment, self.player.progression,
+                            {}, self.play_time
+                        )
+                        if self.save_system.save_game(self.selected_save_slot, game_state):
+                            logger.info(f"Game saved to slot {self.selected_save_slot}")
+                        self.state_manager.set_state(GameState.PLAYING)
+                elif self.state_manager.current_state == GameState.LOAD_MENU:
+                    if event.key == K_UP:
+                        # Find previous slot with save
+                        saves = self.save_system.list_saves()
+                        for slot in range(self.selected_save_slot - 1, 0, -1):
+                            if slot in saves:
+                                self.selected_save_slot = slot
+                                break
+                    elif event.key == K_DOWN:
+                        # Find next slot with save
+                        saves = self.save_system.list_saves()
+                        for slot in range(self.selected_save_slot + 1, 6):
+                            if slot in saves:
+                                self.selected_save_slot = slot
+                                break
+                    elif event.key == K_RETURN:
+                        # Perform load
+                        game_state = self.save_system.load_game(self.selected_save_slot)
+                        if game_state:
+                            from game.save_system import deserialize_game_state
+                            success, play_time = deserialize_game_state(
+                                game_state, self.player, self.inventory,
+                                self.quest_manager, self.player.equipment,
+                                self.player.progression
+                            )
+                            if success:
+                                self.play_time = play_time
+                                logger.info(f"Game loaded from slot {self.selected_save_slot}")
+                        self.state_manager.set_state(GameState.PLAYING)
+                    elif event.key == K_DELETE:
+                        # Delete save
+                        if self.save_system.delete_save(self.selected_save_slot):
+                            logger.info(f"Deleted save in slot {self.selected_save_slot}")
+
+                # Crafting menu controls
+                if self.state_manager.current_state == GameState.CRAFTING:
+                    max_recipes = len(self.cached_recipes)
+
+                    if event.key == K_UP:
+                        # Navigate up in recipe list
+                        self.selected_recipe_index = max(0, self.selected_recipe_index - 1)
+                    elif event.key == K_DOWN:
+                        # Navigate down in recipe list
+                        self.selected_recipe_index = min(max_recipes - 1, self.selected_recipe_index + 1)
+                    elif event.key == K_RETURN or event.key == K_SPACE:
+                        # Craft selected recipe
+                        if 0 <= self.selected_recipe_index < max_recipes:
+                            recipe = self.cached_recipes[self.selected_recipe_index]
+                            success, message = self.crafting_manager.craft_item(
+                                recipe.recipe_id,
+                                self.player.inventory,
+                                self.player.progression.level
+                            )
+                            if success:
+                                logger.info(f"Successfully crafted: {message}")
+                                self.sound_manager.play_sound('pickup')  # Reuse pickup sound
+                            else:
+                                logger.warning(f"Cannot craft: {message}")
+                                self.sound_manager.play_sound('error')  # Play error sound if available
 
                 # Dialogue controls (Phase 5)
                 if self.state_manager.current_state == GameState.DIALOGUE:
@@ -641,6 +944,12 @@ class Game:
 
     def update(self):
         """Update game state."""
+        from graphics.particles import ParticleType
+
+        # Track play time
+        if self.state_manager.is_playing():
+            self.play_time += self.delta_time
+
         # Only allow movement and interaction when playing
         if self.state_manager.can_move():
             # Process keyboard movement
@@ -671,6 +980,70 @@ class Game:
             else:
                 self.player.stop_block()
 
+            # Spell casting - Number keys 1-8
+            for i, key in enumerate([K_1, K_2, K_3, K_4, K_5, K_6, K_7, K_8]):
+                if self.keys.get(key, False):
+                    # Cast spell from slot i
+                    if self.player.cast_spell(i, self.spell_manager):
+                        logger.info(f"Cast spell from slot {i + 1}")
+
+                        # Create spell cast particle effect
+                        spell = self.player.spell_caster.equipped_spells[i]
+                        if spell:
+                            particle_type = get_spell_particle_type(spell.element)
+                            self.particle_system.create_spell_burst(
+                                self.player.camera.position,
+                                particle_type,
+                                particle_count=10
+                            )
+
+                            # Handle instant target spells (like Lightning Bolt)
+                            if spell.is_instant and not spell.is_self_target:
+                                # Find nearest enemy in range
+                                nearest_enemy = self.enemy_manager.get_nearest_enemy(
+                                    self.player.position,
+                                    spell.stats.range
+                                )
+
+                                if nearest_enemy and nearest_enemy.is_alive():
+                                    # Apply damage
+                                    damage = spell.get_damage()
+                                    nearest_enemy.take_damage(damage)
+                                    logger.info(f"Lightning struck {nearest_enemy.name} for {damage:.1f} damage!")
+
+                                    # Create lightning particle trail from player to enemy
+                                    num_particles = 15
+                                    for j in range(num_particles):
+                                        # Interpolate position from player to enemy
+                                        t = j / (num_particles - 1)
+                                        particle_pos = self.player.camera.position * (1 - t) + nearest_enemy.position * t
+                                        self.particle_system.create_spell_burst(
+                                            particle_pos,
+                                            ParticleType.LIGHTNING_SPARK,
+                                            particle_count=3
+                                        )
+
+                                    # Create impact burst at enemy
+                                    self.particle_system.create_spell_burst(
+                                        nearest_enemy.position + glm.vec3(0, 0.5, 0),
+                                        ParticleType.LIGHTNING_SPARK,
+                                        particle_count=30
+                                    )
+
+                                    # Add damage number
+                                    self.damage_numbers.add_damage_number(
+                                        damage,
+                                        nearest_enemy.position,
+                                        critical=False
+                                    )
+
+                                    # Add screen shake
+                                    from engine.camera_shake import ShakePresets
+                                    self.player.camera.shake.add_trauma(ShakePresets.HEAVY_HIT)
+
+                    # Clear key to prevent repeated casting
+                    self.keys[key] = False
+
             # Update interaction system (check what player is looking at)
             # Include POI markers in interactable objects
             all_interactables = self.world.entities + self.world.poi_markers
@@ -683,8 +1056,93 @@ class Game:
         # Update physics (gravity) and entities
         self.player.update(self.delta_time, terrain=self.world.chunk_manager)
 
+        # Update spell system
+        self.spell_manager.update(self.delta_time)
+
+        # Update spell projectiles (removed excessive debug logging)
+
+        # Update spell projectile particles and check collisions
+        projectiles_to_remove = []
+        for projectile in self.spell_manager.get_projectiles():
+            # Create trail particles for projectile
+            particle_type = get_spell_particle_type(projectile.spell.element)
+            self.particle_system.create_spell_trail_particle(projectile.position, particle_type)
+
+            # Check collision with enemies (larger radius for better hit detection)
+            hit_enemy = False
+
+            for enemy in self.enemy_manager.get_all_enemies():
+                if enemy.is_alive():
+                    # Use larger collision radius (3.0 for even better detection)
+                    if projectile.check_collision(enemy.position, target_radius=3.0):
+                        # Apply spell damage
+                        damage = projectile.spell.get_damage()
+                        enemy.take_damage(damage)
+                        logger.info(f"Spell hit {enemy.name} for {damage:.1f} damage!")
+
+                        # Add damage number
+                        self.damage_numbers.add_damage_number(damage, enemy.position, critical=False)
+
+                        # Create impact particle burst
+                        self.particle_system.create_spell_burst(
+                            enemy.position,
+                            ParticleType.SPELL_IMPACT,
+                            particle_count=20
+                        )
+
+                        # Apply status effects
+                        if projectile.spell.stats.status_effect:
+                            # Status effects would be applied here when implemented
+                            pass
+
+                        # Mark projectile for removal
+                        projectiles_to_remove.append(projectile)
+                        hit_enemy = True
+                        break
+
+        # Remove hit projectiles safely after iteration
+        for proj in projectiles_to_remove:
+            if proj in self.spell_manager.active_projectiles:
+                self.spell_manager.active_projectiles.remove(proj)
+
         # Update game world (terrain, entities, NPCs, enemies)
         self.world.update(self.delta_time, self.player.position)
+
+        # Process enemy attacks on player
+        for enemy in self.enemy_manager.get_all_enemies():
+            if enemy.is_alive() and enemy.combat.is_attacking:
+                # Check if enemy is still in range of player
+                distance = glm.length(self.player.position - enemy.position)
+                if distance <= enemy.attack_range:
+                    # Deal damage at the midpoint of attack animation
+                    # This prevents damage being dealt every frame during the attack
+                    if 0.05 < enemy.combat.attack_timer <= 0.15:
+                        # Execute attack on player
+                        from game.combat import CombatSystem, AttackType
+                        result = CombatSystem.execute_attack(
+                            enemy.stats,
+                            self.player.stats,
+                            AttackType.LIGHT,
+                            defender_is_blocking=self.player.combat.is_blocking
+                        )
+
+                        if result.hit:
+                            logger.info(f"{enemy.name} hit player for {result.damage:.1f} damage!")
+
+                            # Add damage number above player
+                            self.damage_numbers.add_damage_number(
+                                result.damage,
+                                self.player.position + glm.vec3(0, 2, 0),
+                                result.critical
+                            )
+
+                            # Add screen shake when player is hit
+                            from engine.camera_shake import ShakePresets
+                            shake_amount = ShakePresets.MEDIUM_HIT if result.critical else ShakePresets.LIGHT_HIT
+                            self.player.camera.shake.add_trauma(shake_amount)
+
+                            # Play hit sound
+                            self.sound_manager.play('hit')
 
         # Update damage numbers
         self.damage_numbers.update(self.delta_time)
@@ -713,6 +1171,12 @@ class Game:
 
         # Update quests (Phase 5)
         self.quest_manager.update()
+
+        # Update waypoints based on player position
+        self.waypoint_manager.update_waypoint_states(
+            self.player.position[0],
+            self.player.position[2]
+        )
 
     def render_shadow_pass(self):
         """Render shadow map from light's perspective (Phase 3.2)."""
@@ -812,6 +1276,9 @@ class Game:
         # Upload lighting data
         self.light_manager.upload_to_shader(self.lit_shader.program, self.player.camera.position)
 
+        # Set default object color to white (will be overridden for specific objects)
+        self.lit_shader.program['objectColor'].write(glm.vec3(1.0, 1.0, 1.0))
+
         # Render terrain (chunk-based system)
         self.lit_shader.program['model'].write(self.identity_model)
         self.lit_shader.program['normal_matrix'].write(self.identity_normal_matrix)
@@ -878,6 +1345,48 @@ class Game:
             self.lit_shader.program['normal_matrix'].write(enemy_normal_matrix)
             self.cube_mesh.render()
 
+        # Render spell projectiles (make them larger and more visible)
+        # Use white texture so objectColor shows through
+        self.white_texture.use(0)
+        self.lit_shader.program['texture0'] = 0
+
+        for projectile in self.spell_manager.get_projectiles():
+            # Get spell color based on element
+            from game.spell_system import get_spell_color
+            spell_color = get_spell_color(projectile.spell.element)
+
+            # Create model matrix for projectile (larger for visibility)
+            proj_model = glm.mat4(1.0)
+            proj_model = glm.translate(proj_model, projectile.position)
+            # Make projectiles larger (1.0 instead of 0.3)
+            proj_model = glm.scale(proj_model, glm.vec3(1.0, 1.0, 1.0))
+
+            proj_normal_matrix = glm.mat3(glm.transpose(glm.inverse(proj_model)))
+            self.lit_shader.program['model'].write(proj_model)
+            self.lit_shader.program['normal_matrix'].write(proj_normal_matrix)
+            self.lit_shader.program['objectColor'].write(spell_color)
+            self.cube_mesh.render()
+
+        # Render particles (make them MUCH larger and more visible)
+        # White texture is already bound from projectiles
+        all_particles = self.particle_system.get_all_particles()
+        for particle in all_particles:
+            # Create model matrix for particle (5x larger for visibility)
+            particle_model = glm.mat4(1.0)
+            particle_model = glm.translate(particle_model, particle.position)
+            # Make particles 5x larger so they're visible
+            scale = particle.size * 5.0
+            particle_model = glm.scale(particle_model, glm.vec3(scale, scale, scale))
+
+            particle_normal_matrix = glm.mat3(glm.transpose(glm.inverse(particle_model)))
+            self.lit_shader.program['model'].write(particle_model)
+            self.lit_shader.program['normal_matrix'].write(particle_normal_matrix)
+            self.lit_shader.program['objectColor'].write(particle.color)
+            self.cube_mesh.render()
+
+        # Reset objectColor to white for other objects
+        self.lit_shader.program['objectColor'].write(glm.vec3(1.0, 1.0, 1.0))
+
         # Render POI markers (Phase 6)
         for marker in self.world.poi_markers:
             # Frustum culling - use larger radius for tall markers
@@ -937,21 +1446,42 @@ class Game:
                     projection
                 )
 
-            # Draw HUD (crosshair, item count, interaction prompt, culling stats)
+            # Find nearby boss for boss health bar
+            nearby_boss = None
+            boss_detection_range = 40.0  # Show boss bar within 40 units
+            for enemy in self.enemy_manager.get_all_enemies():
+                if enemy.is_boss and enemy.is_alive():
+                    distance = glm.length(enemy.position - self.player.position)
+                    if distance <= boss_detection_range:
+                        nearby_boss = enemy
+                        break
+
+            # Draw HUD (crosshair, item count, interaction prompt, culling stats, waypoints)
             self.ui.draw_hud(self.player, self.inventory, self.interaction.looking_at,
-                            self.culled_count, self.total_entities)
+                            self.culled_count, self.total_entities, nearby_boss, self.quest_manager)
+
+            # Draw mini-map overlay
+            self.ui.draw_minimap(
+                self.player.position,
+                self.player.camera.yaw,
+                self.world.chunk_manager,
+                self.quest_manager
+            )
         elif self.state_manager.current_state == GameState.PAUSED:
             # Draw pause menu
             self.ui.draw_pause_menu()
         elif self.state_manager.current_state == GameState.INVENTORY:
             # Draw inventory screen
-            self.ui.draw_inventory(self.inventory)
+            self.ui.draw_inventory(self.player.inventory)
         elif self.state_manager.current_state == GameState.EQUIPMENT:
             # Draw equipment screen (Phase 5)
-            self.ui.draw_equipment(self.player, self.inventory)
+            self.ui.draw_equipment(self.player, self.player.inventory)
+        elif self.state_manager.current_state == GameState.CRAFTING:
+            # Draw crafting screen (use cached recipes for performance)
+            self.ui.draw_crafting(self.cached_recipes, self.crafting_manager, self.player, self.selected_recipe_index)
         elif self.state_manager.current_state == GameState.MAP:
             # Draw map
-            self.ui.draw_map(self.player.position, self.world.chunk_manager)
+            self.ui.draw_map(self.player.position, self.world.chunk_manager, self.quest_manager)
         elif self.state_manager.current_state == GameState.JOURNAL:
             # Draw journal with objectives and lore
             self.ui.draw_journal(self.journal)
@@ -963,6 +1493,12 @@ class Game:
         elif self.state_manager.current_state == GameState.QUEST_LOG:
             # Draw quest log (Phase 5)
             self.ui.draw_quest_log(self.quest_manager)
+        elif self.state_manager.current_state == GameState.SAVE_MENU:
+            # Draw save menu
+            self.ui.draw_save_menu(self.save_system, self.selected_save_slot)
+        elif self.state_manager.current_state == GameState.LOAD_MENU:
+            # Draw load menu
+            self.ui.draw_load_menu(self.save_system, self.selected_save_slot)
 
         # Render UI to screen
         self.ui.render(self.window.screen)
@@ -997,9 +1533,15 @@ class Game:
         logger.info("  Left Click - Attack")
         logger.info("  Right Click (Hold) - Block")
         logger.info("  R - Dodge Roll")
+        logger.info("  1-8 - Cast Spells")
         logger.info("  E - Interact with NPCs")
         logger.info("  I - Inventory")
+        logger.info("  C - Equipment")
+        logger.info("  V - Crafting")
         logger.info("  M - Map")
+        logger.info("  N - Toggle Mini-Map")
+        logger.info("  +/- - Zoom Mini-Map")
+        logger.info("  P - Move Mini-Map")
         logger.info("  J - Journal")
         logger.info("  Q - Quest Log")
         logger.info("  Tab - Toggle mouse capture")
@@ -1044,59 +1586,11 @@ class Game:
         """Clean up resources before exiting."""
         logger.info("Cleaning up resources...")
 
-        # Release meshes and terrain (not managed by ResourceManager yet)
-        if hasattr(self, 'cube_mesh') and self.cube_mesh:
-            try:
-                self.cube_mesh.release()
-            except Exception as e:
-                logger.error(f"Error releasing cube_mesh: {e}")
-
-        if hasattr(self, 'world') and self.world:
-            try:
-                self.world.cleanup()
-            except Exception as e:
-                logger.error(f"Error cleaning up world: {e}")
-
-        # Release vegetation renderer
-        if hasattr(self, 'vegetation_renderer') and self.vegetation_renderer:
-            try:
-                self.vegetation_renderer.release()
-            except Exception as e:
-                logger.error(f"Error releasing vegetation renderer: {e}")
-
-        # Release skybox (Phase 3.3)
-        if hasattr(self, 'skybox') and self.skybox:
-            try:
-                self.skybox.release()
-            except Exception as e:
-                logger.error(f"Error releasing skybox: {e}")
-
-        # Release shadow maps (Phase 3.2)
-        if hasattr(self, 'shadow_map_manager') and self.shadow_map_manager:
-            try:
-                self.shadow_map_manager.clear_all()
-            except Exception as e:
-                logger.error(f"Error clearing shadow maps: {e}")
-
-        # Clear all cached resources (shaders, textures)
-        if hasattr(self, 'resource_manager') and self.resource_manager:
-            try:
-                self.resource_manager.clear_cache()
-            except Exception as e:
-                logger.error(f"Error clearing resource cache: {e}")
-
-        # Cleanup other systems
-        if hasattr(self, 'sound_manager') and self.sound_manager:
-            try:
-                self.sound_manager.cleanup()
-            except Exception as e:
-                logger.error(f"Error cleaning up sound manager: {e}")
-
-        if hasattr(self, 'window') and self.window:
-            try:
-                self.window.cleanup()
-            except Exception as e:
-                logger.error(f"Error cleaning up window: {e}")
+        # Use resource lifecycle manager for proper cleanup ordering
+        if hasattr(self, 'resource_lifecycle'):
+            self.resource_lifecycle.cleanup_all()
+        else:
+            logger.warning("Resource lifecycle manager not initialized, skipping cleanup")
 
         logger.info("Cleanup complete")
 

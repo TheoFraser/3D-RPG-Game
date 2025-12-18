@@ -1,6 +1,6 @@
 """Character stats system for combat."""
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Callable
 import config
 
 
@@ -18,10 +18,17 @@ class CharacterStats:
     current_health: float = field(init=False)
     current_stamina: float = field(init=False)
 
+    # Leveling (player only)
+    level: int = field(default=config.STARTING_LEVEL)
+    current_xp: int = field(default=0)
+
     # Status
     is_alive: bool = field(init=False, default=True)
     is_stunned: bool = field(default=False)
     stun_timer: float = field(default=0.0)
+
+    # Callbacks
+    on_level_up: Optional[Callable[[int], None]] = field(default=None, repr=False)
 
     def __post_init__(self):
         """Initialize current values to max."""
@@ -120,6 +127,86 @@ class CharacterStats:
         """
         self.is_stunned = True
         self.stun_timer = duration
+
+    @property
+    def xp_to_next_level(self) -> int:
+        """
+        Get XP required to reach next level.
+
+        Returns:
+            XP needed for next level (0 if at max level)
+        """
+        if self.level >= config.MAX_LEVEL:
+            return 0
+        return config.XP_THRESHOLDS[self.level] - self.current_xp
+
+    @property
+    def xp_progress(self) -> float:
+        """
+        Get XP progress to next level as percentage.
+
+        Returns:
+            Progress from 0.0 to 1.0 (1.0 if at max level)
+        """
+        if self.level >= config.MAX_LEVEL:
+            return 1.0
+
+        current_level_xp = config.XP_THRESHOLDS[self.level - 1]
+        next_level_xp = config.XP_THRESHOLDS[self.level]
+        xp_in_level = self.current_xp - current_level_xp
+        xp_needed = next_level_xp - current_level_xp
+
+        return xp_in_level / xp_needed if xp_needed > 0 else 1.0
+
+    def gain_xp(self, amount: int) -> bool:
+        """
+        Gain experience points and check for level-up.
+
+        Args:
+            amount: XP to gain
+
+        Returns:
+            True if leveled up, False otherwise
+        """
+        if self.level >= config.MAX_LEVEL:
+            return False
+
+        self.current_xp += amount
+        leveled_up = False
+
+        # Check for level-ups (can level up multiple times)
+        while self.level < config.MAX_LEVEL and self.current_xp >= config.XP_THRESHOLDS[self.level]:
+            self._level_up()
+            leveled_up = True
+
+        return leveled_up
+
+    def _level_up(self) -> None:
+        """
+        Level up the character and increase stats.
+        """
+        self.level += 1
+
+        # Increase max stats
+        old_max_health = self.max_health
+        old_max_stamina = self.max_stamina
+
+        self.max_health += config.LEVEL_HEALTH_BONUS
+        self.max_stamina += config.LEVEL_STAMINA_BONUS
+        self.base_damage += config.LEVEL_DAMAGE_BONUS
+        self.defense += config.LEVEL_DEFENSE_BONUS
+
+        # Heal by the bonus amounts (reward for leveling)
+        self.current_health += config.LEVEL_HEALTH_BONUS
+        self.current_stamina += config.LEVEL_STAMINA_BONUS
+
+        # Ensure we don't exceed new maximums
+        self.current_health = min(self.current_health, self.max_health)
+        self.current_stamina = min(self.current_stamina, self.max_stamina)
+
+        # Call callback if set
+        if self.on_level_up:
+            self.on_level_up(self.level)
 
 
 def create_player_stats() -> CharacterStats:
